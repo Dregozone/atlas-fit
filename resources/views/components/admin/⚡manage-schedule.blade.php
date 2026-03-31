@@ -215,10 +215,12 @@ new #[Title('Manage Schedule')] class extends Component {
             </flux:callout>
         @endif
 
-        <flux:tabs wire:model="activeTab">
-            <flux:tab name="rotations">Rotations</flux:tab>
-            <flux:tab name="days">Days</flux:tab>
-            <flux:tab name="exercises">Exercises</flux:tab>
+        <flux:tab.group>
+            <flux:tabs wire:model="activeTab">
+                <flux:tab name="rotations">Rotations</flux:tab>
+                <flux:tab name="days">Days</flux:tab>
+                <flux:tab name="exercises">Exercises</flux:tab>
+            </flux:tabs>
 
             <flux:tab.panel name="rotations">
                 <flux:card class="mt-4">
@@ -354,8 +356,6 @@ new #[Title('Manage Schedule')] class extends Component {
                     </flux:table>
                 </flux:card>
             </flux:tab.panel>
-        </flux:tabs>
+        </flux:tab.group>
 
     </div>
-
-</div>
