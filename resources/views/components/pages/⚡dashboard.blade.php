@@ -36,7 +36,7 @@ new #[Title('Dashboard')] class extends Component {
         $rotation = Rotation::where('week', $rotationWeek)->first();
         $day = Day::where('day', $dayName)->first();
 
-        if (! $day || $day->session === '') {
+        if (! $day || empty($day->session)) {
             return [
                 'day' => $dayName,
                 'rotation' => $rotation,
