@@ -63,6 +63,7 @@ class UpcomingWorkouts extends Controller
         $upcomingWorkouts = $primaryExercises->concat($secondaryExercises)->values();
 
         return response()->json([
+            'rotation' => $rotation,
             'upcomingWorkouts' => $upcomingWorkouts,
             'user' => [
                 'id' => $user->id,
