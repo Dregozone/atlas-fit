@@ -51,7 +51,9 @@ class Macros extends Controller
 
         // Find daily goals
         if (! $user->body_weight_lbs || ! $user->fitness_goal) {
-            return ['carbs' => null, 'protein' => null, 'fat' => null, 'calories' => null];
+            return response()->json([
+                'message' => 'User body weight and fitness goal are required to calculate macros',
+            ], 400);
         }
 
         $calc = new MacroCalculator;

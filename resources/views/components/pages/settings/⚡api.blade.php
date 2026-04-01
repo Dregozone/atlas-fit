@@ -2,9 +2,10 @@
 
 use App\Models\User;
 use Illuminate\Support\Str;
+use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new class extends Component
+new #[Title('Manage API')] class extends Component
 {
     public bool $apiIsDisabled = true;
 
