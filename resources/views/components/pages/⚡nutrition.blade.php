@@ -86,16 +86,24 @@ new #[Title('Nutrition')] class extends Component {
     #[Computed]
     public function catalogData()
     {
-        $remaining = $this->remainingMacros;
+        $goals  = $this->macroGoals;
+        $totals = $this->todayTotals;
 
-        $trafficState = static function (float $value, ?float $rem): string {
-            if ($rem === null) {
+        /**
+         * Returns the traffic-light state for a single macro on a food item.
+         * If eating the item would push the projected daily total past 75% of
+         * the goal → red; past 50% → amber; otherwise → green.
+         */
+        $trafficState = static function (float $itemValue, float $currentTotal, ?float $dailyGoal): string {
+            if ($dailyGoal === null || $dailyGoal <= 0) {
                 return 'none';
             }
-            if ($rem <= 0 || $value > $rem) {
+            $projected = $currentTotal + $itemValue;
+            $percentage = $projected / $dailyGoal;
+            if ($percentage > 0.75) {
                 return 'red';
             }
-            if ($value > $rem * 0.5) {
+            if ($percentage > 0.50) {
                 return 'amber';
             }
             return 'green';
@@ -117,11 +125,11 @@ new #[Title('Nutrition')] class extends Component {
         };
 
         return $this->foodItems
-            ->map(function ($item) use ($remaining, $trafficState, $trafficClass, $stateScore) {
-                $proteinState  = $trafficState((float) $item->protein,  $remaining['protein']);
-                $carbsState    = $trafficState((float) $item->carbs,    $remaining['carbs']);
-                $fatState      = $trafficState((float) $item->fat,      $remaining['fat']);
-                $caloriesState = $trafficState((float) $item->calories, $remaining['calories']);
+            ->map(function ($item) use ($goals, $totals, $trafficState, $trafficClass, $stateScore) {
+                $proteinState  = $trafficState((float) $item->protein,  (float) $totals->protein,  $goals['protein']  !== null ? (float) $goals['protein']  : null);
+                $carbsState    = $trafficState((float) $item->carbs,    (float) $totals->carbs,    $goals['carbs']    !== null ? (float) $goals['carbs']    : null);
+                $fatState      = $trafficState((float) $item->fat,      (float) $totals->fat,      $goals['fat']      !== null ? (float) $goals['fat']      : null);
+                $caloriesState = $trafficState((float) $item->calories, (float) $totals->calories, $goals['calories'] !== null ? (float) $goals['calories'] : null);
 
                 $score = $stateScore($proteinState) + $stateScore($carbsState)
                        + $stateScore($fatState)     + $stateScore($caloriesState);
@@ -414,10 +422,10 @@ new #[Title('Nutrition')] class extends Component {
 
             @if($this->macroGoals['calories'])
                 <flux:text class="mb-3 text-xs text-zinc-500">
-                    Colours show how well each food fits your remaining macros:
-                    <span class="text-green-600 dark:text-green-500 font-semibold">■ Green</span> = fits well,
-                    <span class="text-amber-500 dark:text-amber-400 font-semibold">■ Amber</span> = uses &gt;50 % of remaining,
-                    <span class="text-red-600 dark:text-red-400 font-semibold">■ Red</span> = would exceed limit.
+                    Colours show how close to your daily target eating this item would take you:
+                    <span class="text-green-600 dark:text-green-500 font-semibold">■ Green</span> = projected total stays under 50% of daily goal,
+                    <span class="text-amber-500 dark:text-amber-400 font-semibold">■ Amber</span> = would push past 50%,
+                    <span class="text-red-600 dark:text-red-400 font-semibold">■ Red</span> = would push past 75%.
                     Items are ordered with the best overall fit at the top.
                 </flux:text>
             @endif
@@ -435,10 +443,10 @@ new #[Title('Nutrition')] class extends Component {
                     @foreach($this->catalogData as $item)
                         <flux:table.row wire:key="catalog-{{ $item->id }}">
                             <flux:table.cell class="font-medium">{{ $item->name }}</flux:table.cell>
-                            <flux:table.cell class="{{ $item->proteinClass }}">{{ $item->protein }}g</flux:table.cell>
-                            <flux:table.cell class="{{ $item->carbsClass }}">{{ $item->carbs }}g</flux:table.cell>
-                            <flux:table.cell class="{{ $item->fatClass }}">{{ $item->fat }}g</flux:table.cell>
-                            <flux:table.cell class="{{ $item->caloriesClass }}">{{ $item->calories }} kcal</flux:table.cell>
+                            <flux:table.cell><span class="{{ $item->proteinClass }}">{{ $item->protein }}g</span></flux:table.cell>
+                            <flux:table.cell><span class="{{ $item->carbsClass }}">{{ $item->carbs }}g</span></flux:table.cell>
+                            <flux:table.cell><span class="{{ $item->fatClass }}">{{ $item->fat }}g</span></flux:table.cell>
+                            <flux:table.cell><span class="{{ $item->caloriesClass }}">{{ $item->calories }} kcal</span></flux:table.cell>
                             <flux:table.cell>
                                 <flux:button wire:click="quickAdd({{ $item->id }})" size="sm" variant="ghost" icon="plus-circle">
                                     Add
