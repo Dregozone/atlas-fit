@@ -37,6 +37,8 @@ new #[Title('Nutrition')] class extends Component {
 
     public bool $consumedSuccess = false;
     public bool $itemAddedSuccess = false;
+    public bool $quickAddSuccess = false;
+    public string $quickAddName = '';
 
     #[Computed]
     public function macroGoals(): array
@@ -65,6 +67,81 @@ new #[Title('Nutrition')] class extends Component {
     public function foodItems()
     {
         return MealItem::where('is_active', true)->orderBy('name')->get();
+    }
+
+    #[Computed]
+    public function remainingMacros(): array
+    {
+        $goals = $this->macroGoals;
+        $totals = $this->todayTotals;
+
+        return [
+            'protein'  => $goals['protein']  !== null ? (float) $goals['protein']  - (float) $totals->protein  : null,
+            'carbs'    => $goals['carbs']    !== null ? (float) $goals['carbs']    - (float) $totals->carbs    : null,
+            'fat'      => $goals['fat']      !== null ? (float) $goals['fat']      - (float) $totals->fat      : null,
+            'calories' => $goals['calories'] !== null ? (float) $goals['calories'] - (float) $totals->calories : null,
+        ];
+    }
+
+    #[Computed]
+    public function catalogData()
+    {
+        $remaining = $this->remainingMacros;
+
+        $trafficState = static function (float $value, ?float $rem): string {
+            if ($rem === null) {
+                return 'none';
+            }
+            if ($rem <= 0 || $value > $rem) {
+                return 'red';
+            }
+            if ($value > $rem * 0.5) {
+                return 'amber';
+            }
+            return 'green';
+        };
+
+        $trafficClass = static function (string $state): string {
+            return match ($state) {
+                'green' => 'text-green-600 dark:text-green-500 font-semibold',
+                'amber' => 'text-amber-500 dark:text-amber-400 font-semibold',
+                'red'   => 'text-red-600 dark:text-red-400 font-semibold',
+                default => '',
+            };
+        };
+
+        $stateScore = static fn (string $state): int => match ($state) {
+            'green' => 2,
+            'amber' => 1,
+            default => 0,
+        };
+
+        return $this->foodItems
+            ->map(function ($item) use ($remaining, $trafficState, $trafficClass, $stateScore) {
+                $proteinState  = $trafficState((float) $item->protein,  $remaining['protein']);
+                $carbsState    = $trafficState((float) $item->carbs,    $remaining['carbs']);
+                $fatState      = $trafficState((float) $item->fat,      $remaining['fat']);
+                $caloriesState = $trafficState((float) $item->calories, $remaining['calories']);
+
+                $score = $stateScore($proteinState) + $stateScore($carbsState)
+                       + $stateScore($fatState)     + $stateScore($caloriesState);
+
+                return (object) [
+                    'id'            => $item->id,
+                    'name'          => $item->name,
+                    'protein'       => $item->protein,
+                    'carbs'         => $item->carbs,
+                    'fat'           => $item->fat,
+                    'calories'      => $item->calories,
+                    'proteinClass'  => $trafficClass($proteinState),
+                    'carbsClass'    => $trafficClass($carbsState),
+                    'fatClass'      => $trafficClass($fatState),
+                    'caloriesClass' => $trafficClass($caloriesState),
+                    'score'         => $score,
+                ];
+            })
+            ->sortByDesc(fn ($item) => $item->score)
+            ->values();
     }
 
     #[Computed]
@@ -116,7 +193,7 @@ new #[Title('Nutrition')] class extends Component {
         $this->reset(['selectedMealItemId', 'quantity']);
         $this->quantity = 1;
         $this->consumedSuccess = true;
-        unset($this->todayConsumed, $this->todayTotals);
+        unset($this->todayConsumed, $this->todayTotals, $this->remainingMacros, $this->catalogData);
     }
 
     public function addMealItem(): void
@@ -141,7 +218,22 @@ new #[Title('Nutrition')] class extends Component {
         $this->reset(['newItemName', 'newItemCarbs', 'newItemProtein', 'newItemFat']);
         $this->showAddItemForm = false;
         $this->itemAddedSuccess = true;
-        unset($this->foodItems);
+        unset($this->foodItems, $this->catalogData);
+    }
+
+    public function quickAdd(int $itemId): void
+    {
+        $item = MealItem::findOrFail($itemId, ['id', 'name']);
+
+        Consumed::create([
+            'user_id'      => auth()->id(),
+            'meal_item_id' => $itemId,
+            'quantity'     => 1,
+        ]);
+
+        $this->quickAddSuccess = true;
+        $this->quickAddName = $item->name;
+        unset($this->todayConsumed, $this->todayTotals, $this->remainingMacros, $this->catalogData);
     }
 };
 ?>
@@ -313,6 +405,23 @@ new #[Title('Nutrition')] class extends Component {
         {{-- Food Catalogue --}}
         <flux:card>
             <flux:heading size="lg" class="mb-4">Food Catalogue</flux:heading>
+
+            @if($quickAddSuccess)
+                <flux:callout icon="check-circle" color="green" class="mb-4">
+                    <flux:callout.text>1 serving of <strong>{{ $quickAddName }}</strong> added to today's diary!</flux:callout.text>
+                </flux:callout>
+            @endif
+
+            @if($this->macroGoals['calories'])
+                <flux:text class="mb-3 text-xs text-zinc-500">
+                    Colours show how well each food fits your remaining macros:
+                    <span class="text-green-600 dark:text-green-500 font-semibold">■ Green</span> = fits well,
+                    <span class="text-amber-500 dark:text-amber-400 font-semibold">■ Amber</span> = uses &gt;50 % of remaining,
+                    <span class="text-red-600 dark:text-red-400 font-semibold">■ Red</span> = would exceed limit.
+                    Items are ordered with the best overall fit at the top.
+                </flux:text>
+            @endif
+
             <flux:table>
                 <flux:table.columns>
                     <flux:table.column>Name</flux:table.column>
@@ -320,15 +429,21 @@ new #[Title('Nutrition')] class extends Component {
                     <flux:table.column>Carbs</flux:table.column>
                     <flux:table.column>Fat</flux:table.column>
                     <flux:table.column>Calories</flux:table.column>
+                    <flux:table.column>Quick Add</flux:table.column>
                 </flux:table.columns>
                 <flux:table.rows>
-                    @foreach($this->foodItems as $item)
-                        <flux:table.row>
+                    @foreach($this->catalogData as $item)
+                        <flux:table.row wire:key="catalog-{{ $item->id }}">
                             <flux:table.cell class="font-medium">{{ $item->name }}</flux:table.cell>
-                            <flux:table.cell>{{ $item->protein }}g</flux:table.cell>
-                            <flux:table.cell>{{ $item->carbs }}g</flux:table.cell>
-                            <flux:table.cell>{{ $item->fat }}g</flux:table.cell>
-                            <flux:table.cell>{{ $item->calories }} kcal</flux:table.cell>
+                            <flux:table.cell class="{{ $item->proteinClass }}">{{ $item->protein }}g</flux:table.cell>
+                            <flux:table.cell class="{{ $item->carbsClass }}">{{ $item->carbs }}g</flux:table.cell>
+                            <flux:table.cell class="{{ $item->fatClass }}">{{ $item->fat }}g</flux:table.cell>
+                            <flux:table.cell class="{{ $item->caloriesClass }}">{{ $item->calories }} kcal</flux:table.cell>
+                            <flux:table.cell>
+                                <flux:button wire:click="quickAdd({{ $item->id }})" size="sm" variant="ghost" icon="plus-circle">
+                                    Add
+                                </flux:button>
+                            </flux:table.cell>
                         </flux:table.row>
                     @endforeach
                 </flux:table.rows>
