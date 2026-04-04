@@ -100,10 +100,10 @@ new #[Title('Nutrition')] class extends Component {
             }
             $projected = $currentTotal + $itemValue;
             $percentage = $projected / $dailyGoal;
-            if ($percentage > 0.75) {
+            if ($percentage > 1.00) {
                 return 'red';
             }
-            if ($percentage > 0.50) {
+            if ($percentage > 0.80) {
                 return 'amber';
             }
             return 'green';
@@ -423,9 +423,9 @@ new #[Title('Nutrition')] class extends Component {
             @if($this->macroGoals['calories'])
                 <flux:text class="mb-3 text-xs text-zinc-500">
                     Colours show how close to your daily target eating this item would take you:
-                    <span class="text-green-600 dark:text-green-500 font-semibold">■ Green</span> = projected total stays under 50% of daily goal,
-                    <span class="text-amber-500 dark:text-amber-400 font-semibold">■ Amber</span> = would push past 50%,
-                    <span class="text-red-600 dark:text-red-400 font-semibold">■ Red</span> = would push past 75%.
+                    <span class="text-green-600 dark:text-green-500 font-semibold">■ Green</span> = projected total stays under 80% of daily goal,
+                    <span class="text-amber-500 dark:text-amber-400 font-semibold">■ Amber</span> = would push past 80%,
+                    <span class="text-red-600 dark:text-red-400 font-semibold">■ Red</span> = would exceed the daily goal.
                     Items are ordered with the best overall fit at the top.
                 </flux:text>
             @endif
