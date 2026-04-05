@@ -9,11 +9,14 @@ use App\Models\Achievement;
 use App\Models\CompletedWorkout;
 use App\Services\MacroCalculator;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
 new #[Title('Dashboard')] class extends Component {
+
+    public bool $showAchievementsModal = false;
 
     #[Computed]
     public function todaySchedule(): array
@@ -122,20 +125,35 @@ new #[Title('Dashboard')] class extends Component {
     }
 
     #[Computed]
-    public function achievements()
+    public function achievements(): Collection
     {
-        return Achievement::query()
-            ->join('completed_workouts', 'achievements.satisfied_by_item', '=', 'completed_workouts.equipment')
-            ->where('completed_workouts.user_id', auth()->id())
-            ->where('completed_workouts.is_deleted', false)
-            ->selectRaw('
-                achievements.name,
-                achievements.details,
-                achievements.satisfied_by_amount,
-                MAX(completed_workouts.weight) AS pb
-            ')
-            ->groupBy('achievements.name', 'achievements.details', 'achievements.satisfied_by_amount')
-            ->get();
+        $personalBests = CompletedWorkout::where('user_id', auth()->id())
+            ->where('is_deleted', false)
+            ->selectRaw('MAX(weight) AS pb, equipment')
+            ->groupBy('equipment')
+            ->pluck('pb', 'equipment');
+
+        return Achievement::orderBy('satisfied_by_item')
+            ->orderBy('satisfied_by_amount')
+            ->get()
+            ->map(function ($achievement) use ($personalBests) {
+                $pb = $personalBests[$achievement->satisfied_by_item] ?? null;
+                $target = (float) $achievement->satisfied_by_amount;
+                $unlocked = $pb !== null && $pb >= $target;
+                $percent = ($pb !== null && $target > 0)
+                    ? min(100, (int) round(($pb / $target) * 100))
+                    : 0;
+
+                return (object) [
+                    'name' => $achievement->name,
+                    'details' => $achievement->details,
+                    'satisfied_by_amount' => $target,
+                    'pb' => $pb,
+                    'unlocked' => $unlocked,
+                    'not_started' => $pb === null,
+                    'percent' => $percent,
+                ];
+            });
     }
 
     #[Computed]
@@ -161,8 +179,8 @@ new #[Title('Dashboard')] class extends Component {
                 <flux:heading size="xl">{{ $this->stats['meal_items_recorded'] }}</flux:heading>
                 <flux:text>Food entries logged</flux:text>
             </flux:card>
-            <flux:card class="text-center">
-                <flux:heading size="xl">{{ $this->achievements->where('pb', '>=', 'satisfied_by_amount')->count() }} / {{ $this->achievements->count() }}</flux:heading>
+            <flux:card class="cursor-pointer text-center" wire:click="$set('showAchievementsModal', true)">
+                <flux:heading size="xl">{{ $this->achievements->where('unlocked', true)->count() }} / {{ $this->achievements->count() }}</flux:heading>
                 <flux:text>Achievements unlocked</flux:text>
             </flux:card>
             <flux:card class="text-center">
@@ -335,11 +353,10 @@ new #[Title('Dashboard')] class extends Component {
             <flux:heading size="lg" class="mb-4">Achievements</flux:heading>
             <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 @foreach($this->achievements as $achievement)
-                    @php $unlocked = $achievement->pb >= $achievement->satisfied_by_amount; @endphp
-                    <div class="flex items-start gap-3 rounded-lg border p-3 {{ $unlocked ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950' : 'border-zinc-200 dark:border-zinc-700' }}">
-                        <flux:icon.bolt class="mt-0.5 size-5 shrink-0 {{ $unlocked ? 'text-green-500' : 'text-zinc-400' }}" />
+                    <div class="flex items-start gap-3 rounded-lg border p-3 {{ $achievement->unlocked ? 'border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950' : 'border-zinc-200 dark:border-zinc-700' }}">
+                        <flux:icon.bolt class="mt-0.5 size-5 shrink-0 {{ $achievement->unlocked ? 'text-green-500' : 'text-zinc-400' }}" />
                         <div>
-                            <p class="font-medium {{ $unlocked ? 'text-green-700 dark:text-green-300' : '' }}">{{ $achievement->name }}</p>
+                            <p class="font-medium {{ $achievement->unlocked ? 'text-green-700 dark:text-green-300' : '' }}">{{ $achievement->name }}</p>
                             <p class="text-sm text-zinc-500">{{ $achievement->details }}</p>
                             <p class="text-xs text-zinc-400">PB: {{ $achievement->pb ?? '–' }} / {{ $achievement->satisfied_by_amount }} lbs</p>
                         </div>
@@ -348,5 +365,63 @@ new #[Title('Dashboard')] class extends Component {
             </div>
         </flux:card>
         @endif
+
+        {{-- Achievements Modal --}}
+        <flux:modal wire:model="showAchievementsModal" class="w-full max-w-3xl">
+            <flux:heading size="lg" class="mb-1">Achievements</flux:heading>
+            <flux:subheading class="mb-6">
+                {{ $this->achievements->where('unlocked', true)->count() }} / {{ $this->achievements->count() }} unlocked
+            </flux:subheading>
+
+            <div class="grid gap-4 sm:grid-cols-2">
+                @foreach($this->achievements as $achievement)
+                    @php
+                        $barColor = match(true) {
+                            $achievement->percent >= 75 => 'bg-green-500',
+                            $achievement->percent >= 50 => 'bg-amber-500',
+                            default                     => 'bg-red-500',
+                        };
+                    @endphp
+
+                    <div class="rounded-lg border p-4 {{ $achievement->unlocked ? 'border-zinc-200 bg-zinc-100 opacity-60 dark:border-zinc-600 dark:bg-zinc-800' : 'border-zinc-200 dark:border-zinc-700' }}">
+                        <div class="flex items-center gap-3">
+                            <div class="flex size-10 shrink-0 items-center justify-center rounded-full {{ $achievement->unlocked ? 'bg-zinc-200 dark:bg-zinc-700' : 'bg-blue-100 dark:bg-blue-900' }}">
+                                <flux:icon.bolt class="size-5 {{ $achievement->unlocked ? 'text-zinc-400 dark:text-zinc-500' : 'text-blue-600 dark:text-blue-400' }}" />
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <p class="truncate font-semibold text-zinc-900 dark:text-zinc-100">{{ $achievement->name }}</p>
+                                <p class="text-xs text-zinc-500">{{ $achievement->details }}</p>
+                            </div>
+                            @if($achievement->unlocked)
+                                <flux:badge color="zinc" size="sm">Achieved</flux:badge>
+                            @endif
+                        </div>
+
+                        <div class="mt-3">
+                            @if($achievement->unlocked)
+                                <p class="text-sm text-zinc-500">{{ $achievement->pb }} / {{ $achievement->satisfied_by_amount }} lbs — Completed!</p>
+                            @elseif($achievement->not_started)
+                                <p class="text-sm text-zinc-400">Not started</p>
+                                <div class="mt-1.5 h-2 w-full rounded-full bg-zinc-200 dark:bg-zinc-700"></div>
+                            @else
+                                <div class="flex items-baseline justify-between">
+                                    <p class="text-sm font-medium text-zinc-700 dark:text-zinc-300">{{ $achievement->pb }} / {{ $achievement->satisfied_by_amount }} lbs</p>
+                                    <p class="text-xs text-zinc-500">{{ $achievement->percent }}%</p>
+                                </div>
+                                <div class="mt-1.5 h-2 w-full rounded-full bg-zinc-200 dark:bg-zinc-700">
+                                    <div class="h-2 rounded-full transition-all {{ $barColor }}" style="width: {{ $achievement->percent }}%"></div>
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+
+            <div class="mt-6 flex justify-end">
+                <flux:modal.close>
+                    <flux:button>Close</flux:button>
+                </flux:modal.close>
+            </div>
+        </flux:modal>
 
     </div>
