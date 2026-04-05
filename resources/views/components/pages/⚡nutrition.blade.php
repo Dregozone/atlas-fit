@@ -204,6 +204,12 @@ new #[Title('Nutrition')] class extends Component {
         unset($this->todayConsumed, $this->todayTotals, $this->remainingMacros, $this->catalogData);
     }
 
+    #[Computed]
+    public function calculatedCalories(): float
+    {
+        return round((($this->newItemProtein ?? 0) * 4) + (($this->newItemCarbs ?? 0) * 4) + (($this->newItemFat ?? 0) * 9), 1);
+    }
+
     public function addMealItem(): void
     {
         $this->validateOnly('newItemName');
@@ -211,8 +217,7 @@ new #[Title('Nutrition')] class extends Component {
         $this->validateOnly('newItemProtein');
         $this->validateOnly('newItemFat');
 
-        $calc = new MacroCalculator;
-        $calories = round($calc->calculateCalories($this->newItemCarbs, $this->newItemProtein, $this->newItemFat), 1);
+        $calories = $this->calculatedCalories;
 
         MealItem::create([
             'name' => $this->newItemName,
@@ -347,20 +352,26 @@ new #[Title('Nutrition')] class extends Component {
                             <div class="grid grid-cols-3 gap-3">
                                 <flux:field>
                                     <flux:label>Carbs (g)</flux:label>
-                                    <flux:input wire:model="newItemCarbs" type="number" min="0" step="0.1" />
+                                    <flux:input wire:model.live="newItemCarbs" type="number" min="0" step="0.1" />
                                     <flux:error name="newItemCarbs" />
                                 </flux:field>
                                 <flux:field>
                                     <flux:label>Protein (g)</flux:label>
-                                    <flux:input wire:model="newItemProtein" type="number" min="0" step="0.1" />
+                                    <flux:input wire:model.live="newItemProtein" type="number" min="0" step="0.1" />
                                     <flux:error name="newItemProtein" />
                                 </flux:field>
                                 <flux:field>
                                     <flux:label>Fat (g)</flux:label>
-                                    <flux:input wire:model="newItemFat" type="number" min="0" step="0.1" />
+                                    <flux:input wire:model.live="newItemFat" type="number" min="0" step="0.1" />
                                     <flux:error name="newItemFat" />
                                 </flux:field>
                             </div>
+
+                            <flux:field>
+                                <flux:label>Calories (auto-calculated)</flux:label>
+                                <flux:input type="number" value="{{ $this->calculatedCalories }}" readonly />
+                                <flux:description>Calculated as protein × 4 + carbs × 4 + fat × 9 kcal/g</flux:description>
+                            </flux:field>
 
                             <flux:button type="submit" variant="primary" class="w-full">Add to Catalogue</flux:button>
                         </form>
