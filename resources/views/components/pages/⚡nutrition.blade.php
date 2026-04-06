@@ -422,7 +422,18 @@ new #[Title('Nutrition')] class extends Component {
         </div>
 
         {{-- Food Catalogue --}}
-        <flux:card>
+        <flux:card x-data="{
+            search: '',
+            names: {!! \Illuminate\Support\Js::from($this->catalogData->pluck('name')->map(fn($n) => strtolower($n))->values()) !!},
+            matches(name) {
+                const q = this.search.toLowerCase();
+                return !q || name.includes(q);
+            },
+            get hasResults() {
+                const q = this.search.toLowerCase();
+                return !q || this.names.some(n => n.includes(q));
+            }
+        }">
             <flux:heading size="lg" class="mb-4">Food Catalogue</flux:heading>
 
             @if($quickAddSuccess)
@@ -430,6 +441,8 @@ new #[Title('Nutrition')] class extends Component {
                     <flux:callout.text>1 serving of <strong>{{ $quickAddName }}</strong> added to today's diary!</flux:callout.text>
                 </flux:callout>
             @endif
+
+            <flux:input x-model="search" clearable placeholder="Start typing a food or drink..." class="mb-4" />
 
             @if($this->macroGoals['calories'])
                 <flux:text class="mb-3 text-xs text-zinc-500">
@@ -452,7 +465,7 @@ new #[Title('Nutrition')] class extends Component {
                 </flux:table.columns>
                 <flux:table.rows>
                     @foreach($this->catalogData as $item)
-                        <flux:table.row wire:key="catalog-{{ $item->id }}">
+                        <flux:table.row wire:key="catalog-{{ $item->id }}" x-show="matches(names[{{ $loop->index }}])">
                             <flux:table.cell class="font-medium">{{ $item->name }}</flux:table.cell>
                             <flux:table.cell><span class="{{ $item->proteinClass }}">{{ $item->protein }}g</span></flux:table.cell>
                             <flux:table.cell><span class="{{ $item->carbsClass }}">{{ $item->carbs }}g</span></flux:table.cell>
@@ -465,6 +478,9 @@ new #[Title('Nutrition')] class extends Component {
                             </flux:table.cell>
                         </flux:table.row>
                     @endforeach
+                    <flux:table.row x-show="!hasResults">
+                        <flux:table.cell colspan="6" class="text-center text-zinc-500">No food items match your search.</flux:table.cell>
+                    </flux:table.row>
                 </flux:table.rows>
             </flux:table>
         </flux:card>
