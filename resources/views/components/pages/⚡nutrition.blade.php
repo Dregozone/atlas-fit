@@ -11,18 +11,7 @@ use Livewire\Component;
 
 new #[Title('Nutrition')] class extends Component {
 
-    // Log consumed food form
-    public int $meal_item_id = 0;
-
-    #[Validate('required|exists:meal_items,id')]
-    public ?int $selectedMealItemId = null;
-
-    #[Validate('required|numeric|min:0.1|max:100')]
-    public float $quantity = 1;
-
     // Add new meal item form
-    public bool $showAddItemForm = false;
-
     #[Validate('required|string|max:255')]
     public string $newItemName = '';
 
@@ -35,7 +24,6 @@ new #[Title('Nutrition')] class extends Component {
     #[Validate('required|numeric|min:0|max:500')]
     public float $newItemFat = 0;
 
-    public bool $consumedSuccess = false;
     public bool $itemAddedSuccess = false;
     public bool $quickAddSuccess = false;
     public string $quickAddName = '';
@@ -187,23 +175,6 @@ new #[Title('Nutrition')] class extends Component {
             ->first();
     }
 
-    public function logFood(): void
-    {
-        $this->validateOnly('selectedMealItemId');
-        $this->validateOnly('quantity');
-
-        Consumed::create([
-            'user_id' => auth()->id(),
-            'meal_item_id' => $this->selectedMealItemId,
-            'quantity' => $this->quantity,
-        ]);
-
-        $this->reset(['selectedMealItemId', 'quantity']);
-        $this->quantity = 1;
-        $this->consumedSuccess = true;
-        unset($this->todayConsumed, $this->todayTotals, $this->remainingMacros, $this->catalogData);
-    }
-
     #[Computed]
     public function calculatedCalories(): float
     {
@@ -229,7 +200,6 @@ new #[Title('Nutrition')] class extends Component {
         ]);
 
         $this->reset(['newItemName', 'newItemCarbs', 'newItemProtein', 'newItemFat']);
-        $this->showAddItemForm = false;
         $this->itemAddedSuccess = true;
         unset($this->foodItems, $this->catalogData);
     }
@@ -295,88 +265,49 @@ new #[Title('Nutrition')] class extends Component {
 
         <div class="grid gap-6 lg:grid-cols-2">
 
-            {{-- Log Food Form --}}
+            {{-- Add to Catalogue --}}
             <flux:card>
-                <flux:heading size="lg" class="mb-4">Log Food</flux:heading>
+                <flux:heading size="lg" class="mb-4">Add to Catalogue</flux:heading>
 
-                @if($consumedSuccess)
+                @if($itemAddedSuccess)
                     <flux:callout icon="check-circle" color="green" class="mb-4">
-                        <flux:callout.text>Food logged!</flux:callout.text>
+                        <flux:callout.text>Food item added!</flux:callout.text>
                     </flux:callout>
                 @endif
 
-                <form wire:submit="logFood" class="space-y-4">
+                <form wire:submit="addMealItem" class="space-y-4">
                     <flux:field>
-                        <flux:label>Food Item</flux:label>
-                        <flux:select wire:model="selectedMealItemId" placeholder="Select a food...">
-                            @foreach($this->foodItems as $item)
-                                <flux:select.option :value="$item->id">
-                                    {{ $item->name }} — P: {{ $item->protein }}g C: {{ $item->carbs }}g F: {{ $item->fat }}g
-                                </flux:select.option>
-                            @endforeach
-                        </flux:select>
-                        <flux:error name="selectedMealItemId" />
+                        <flux:label>Name</flux:label>
+                        <flux:input wire:model="newItemName" placeholder="e.g. Chicken breast (100g)" />
+                        <flux:error name="newItemName" />
                     </flux:field>
 
+                    <div class="grid grid-cols-3 gap-3">
+                        <flux:field>
+                            <flux:label>Carbs (g)</flux:label>
+                            <flux:input wire:model.live="newItemCarbs" type="number" min="0" step="0.1" />
+                            <flux:error name="newItemCarbs" />
+                        </flux:field>
+                        <flux:field>
+                            <flux:label>Protein (g)</flux:label>
+                            <flux:input wire:model.live="newItemProtein" type="number" min="0" step="0.1" />
+                            <flux:error name="newItemProtein" />
+                        </flux:field>
+                        <flux:field>
+                            <flux:label>Fat (g)</flux:label>
+                            <flux:input wire:model.live="newItemFat" type="number" min="0" step="0.1" />
+                            <flux:error name="newItemFat" />
+                        </flux:field>
+                    </div>
+
                     <flux:field>
-                        <flux:label>Quantity (servings)</flux:label>
-                        <flux:input wire:model="quantity" type="number" min="0.1" step="0.1" max="100" />
-                        <flux:error name="quantity" />
+                        <flux:label>Calories (auto-calculated)</flux:label>
+                        <flux:input type="number" value="{{ $this->calculatedCalories }}" readonly />
+                        <flux:description>Calculated as protein × 4 + carbs × 4 + fat × 9 kcal/g</flux:description>
                     </flux:field>
 
-                    <flux:button type="submit" variant="primary" class="w-full">Log Food</flux:button>
+                    <flux:button type="submit" variant="primary" class="w-full">Add to Catalogue</flux:button>
                 </form>
-
-                <flux:separator class="my-4" />
-
-                {{-- Add New Meal Item --}}
-                <div>
-                    <button wire:click="$toggle('showAddItemForm')" class="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400">
-                        <flux:icon.plus class="size-4" />
-                        {{ $showAddItemForm ? 'Cancel' : 'Add new food item to catalogue' }}
-                    </button>
-
-                    @if($showAddItemForm)
-                        @if($itemAddedSuccess)
-                            <flux:callout icon="check-circle" color="green" class="mt-3">
-                                <flux:callout.text>Food item added!</flux:callout.text>
-                            </flux:callout>
-                        @endif
-                        <form wire:submit="addMealItem" class="mt-4 space-y-4">
-                            <flux:field>
-                                <flux:label>Name</flux:label>
-                                <flux:input wire:model="newItemName" placeholder="e.g. Chicken breast (100g)" />
-                                <flux:error name="newItemName" />
-                            </flux:field>
-
-                            <div class="grid grid-cols-3 gap-3">
-                                <flux:field>
-                                    <flux:label>Carbs (g)</flux:label>
-                                    <flux:input wire:model.live="newItemCarbs" type="number" min="0" step="0.1" />
-                                    <flux:error name="newItemCarbs" />
-                                </flux:field>
-                                <flux:field>
-                                    <flux:label>Protein (g)</flux:label>
-                                    <flux:input wire:model.live="newItemProtein" type="number" min="0" step="0.1" />
-                                    <flux:error name="newItemProtein" />
-                                </flux:field>
-                                <flux:field>
-                                    <flux:label>Fat (g)</flux:label>
-                                    <flux:input wire:model.live="newItemFat" type="number" min="0" step="0.1" />
-                                    <flux:error name="newItemFat" />
-                                </flux:field>
-                            </div>
-
-                            <flux:field>
-                                <flux:label>Calories (auto-calculated)</flux:label>
-                                <flux:input type="number" value="{{ $this->calculatedCalories }}" readonly />
-                                <flux:description>Calculated as protein × 4 + carbs × 4 + fat × 9 kcal/g</flux:description>
-                            </flux:field>
-
-                            <flux:button type="submit" variant="primary" class="w-full">Add to Catalogue</flux:button>
-                        </form>
-                    @endif
-                </div>
             </flux:card>
 
             {{-- Today's Food Diary --}}
