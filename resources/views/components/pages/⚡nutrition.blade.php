@@ -425,13 +425,24 @@ new #[Title('Nutrition')] class extends Component {
         <flux:card x-data="{
             search: '',
             names: {!! \Illuminate\Support\Js::from($this->catalogData->pluck('name')->map(fn($n) => strtolower($n))->values()) !!},
+            limit: 10,
             matches(name) {
                 const q = this.search.toLowerCase();
                 return !q || name.includes(q);
             },
+            isVisible(index) {
+                const q = this.search.toLowerCase();
+                if (q) {
+                    return this.names[index].includes(q);
+                }
+                return index < this.limit;
+            },
             get hasResults() {
                 const q = this.search.toLowerCase();
                 return !q || this.names.some(n => n.includes(q));
+            },
+            get hiddenCount() {
+                return Math.max(0, this.names.length - this.limit);
             }
         }">
             <flux:heading size="lg" class="mb-4">Food Catalogue</flux:heading>
@@ -465,7 +476,7 @@ new #[Title('Nutrition')] class extends Component {
                 </flux:table.columns>
                 <flux:table.rows>
                     @foreach($this->catalogData as $item)
-                        <flux:table.row wire:key="catalog-{{ $item->id }}" x-show="matches(names[{{ $loop->index }}])">
+                        <flux:table.row wire:key="catalog-{{ $item->id }}" x-show="isVisible({{ $loop->index }})">
                             <flux:table.cell class="font-medium">{{ $item->name }}</flux:table.cell>
                             <flux:table.cell><span class="{{ $item->proteinClass }}">{{ $item->protein }}g</span></flux:table.cell>
                             <flux:table.cell><span class="{{ $item->carbsClass }}">{{ $item->carbs }}g</span></flux:table.cell>
@@ -483,6 +494,12 @@ new #[Title('Nutrition')] class extends Component {
                     </flux:table.row>
                 </flux:table.rows>
             </flux:table>
+
+            <div x-show="!search && hiddenCount > 0" class="mt-3 text-center">
+                <flux:button variant="ghost" size="sm" x-on:click="limit = names.length">
+                    Show <span x-text="hiddenCount"></span> more items
+                </flux:button>
+            </div>
         </flux:card>
 
     </div>
