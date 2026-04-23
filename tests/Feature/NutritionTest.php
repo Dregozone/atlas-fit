@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\MealItem;
+use App\Models\Consumed;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -76,4 +77,60 @@ test('after adding a food item it appears in the food catalogue', function () {
 
     // The food items computed property should now include the new item
     expect(MealItem::where('name', 'Brand New Food')->where('is_active', true)->exists())->toBeTrue();
+});
+
+test('quick add uses the selected quantity', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $item = MealItem::create([
+        'name' => 'Quick Add Quantity Item',
+        'carbs' => 10,
+        'protein' => 10,
+        'fat' => 10,
+        'calories' => 170,
+        'is_active' => true,
+    ]);
+
+    Livewire::test('pages.nutrition')
+        ->set("quickAddQuantities.{$item->id}", 4)
+        ->call('quickAdd', $item->id)
+        ->assertSet('quickAddQuantity', 4);
+
+    $consumed = Consumed::query()->where('user_id', $user->id)->where('meal_item_id', $item->id)->first();
+
+    expect($consumed)->not->toBeNull();
+    expect($consumed->quantity)->toBe(4);
+});
+
+test('quick add quantity is clamped between 1 and 10', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    $item = MealItem::create([
+        'name' => 'Quick Add Clamp Item',
+        'carbs' => 10,
+        'protein' => 10,
+        'fat' => 10,
+        'calories' => 170,
+        'is_active' => true,
+    ]);
+
+    Livewire::test('pages.nutrition')
+        ->set("quickAddQuantities.{$item->id}", 25)
+        ->call('quickAdd', $item->id)
+        ->assertSet('quickAddQuantity', 10);
+
+    Livewire::test('pages.nutrition')
+        ->set("quickAddQuantities.{$item->id}", 0)
+        ->call('quickAdd', $item->id)
+        ->assertSet('quickAddQuantity', 1);
+
+    $quantities = Consumed::query()
+        ->where('user_id', $user->id)
+        ->where('meal_item_id', $item->id)
+        ->pluck('quantity')
+        ->all();
+
+    expect($quantities)->toBe([10, 1]);
 });

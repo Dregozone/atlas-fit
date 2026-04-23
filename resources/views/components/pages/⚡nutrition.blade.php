@@ -27,6 +27,8 @@ new #[Title('Nutrition')] class extends Component {
     public bool $itemAddedSuccess = false;
     public bool $quickAddSuccess = false;
     public string $quickAddName = '';
+    public int $quickAddQuantity = 1;
+    public array $quickAddQuantities = [];
 
     #[Computed]
     public function macroGoals(): array
@@ -207,15 +209,18 @@ new #[Title('Nutrition')] class extends Component {
     public function quickAdd(int $itemId): void
     {
         $item = MealItem::findOrFail($itemId, ['id', 'name']);
+        $quantity = max(1, min(10, (int) ($this->quickAddQuantities[$itemId] ?? 1)));
 
         Consumed::create([
             'user_id'      => auth()->id(),
             'meal_item_id' => $itemId,
-            'quantity'     => 1,
+            'quantity'     => $quantity,
         ]);
 
         $this->quickAddSuccess = true;
         $this->quickAddName = $item->name;
+        $this->quickAddQuantity = $quantity;
+        $this->quickAddQuantities[$itemId] = $quantity;
         unset($this->todayConsumed, $this->todayTotals, $this->remainingMacros, $this->catalogData);
     }
 };
@@ -380,7 +385,7 @@ new #[Title('Nutrition')] class extends Component {
 
             @if($quickAddSuccess)
                 <flux:callout icon="check-circle" color="green" class="mb-4">
-                    <flux:callout.text>1 serving of <strong>{{ $quickAddName }}</strong> added to today's diary!</flux:callout.text>
+                    <flux:callout.text>{{ $quickAddQuantity }} {{ \Illuminate\Support\Str::plural('serving', $quickAddQuantity) }} of <strong>{{ $quickAddName }}</strong> added to today's diary!</flux:callout.text>
                 </flux:callout>
             @endif
 
@@ -414,9 +419,22 @@ new #[Title('Nutrition')] class extends Component {
                             <flux:table.cell><span class="{{ $item->fatClass }}">{{ $item->fat }}g</span></flux:table.cell>
                             <flux:table.cell><span class="{{ $item->caloriesClass }}">{{ $item->calories }} kcal</span></flux:table.cell>
                             <flux:table.cell>
-                                <flux:button wire:click="quickAdd({{ $item->id }})" size="sm" variant="ghost" icon="plus-circle">
-                                    Add
-                                </flux:button>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-zinc-500">Qty.</span>
+                                    <flux:input
+                                        wire:model.live="quickAddQuantities.{{ $item->id }}"
+                                        type="number"
+                                        min="1"
+                                        max="10"
+                                        step="1"
+                                        value="{{ $quickAddQuantities[$item->id] ?? 1 }}"
+                                        aria-label="Qty."
+                                        class="w-16"
+                                    />
+                                    <flux:button wire:click="quickAdd({{ $item->id }})" size="sm" variant="ghost" icon="plus-circle">
+                                        Add
+                                    </flux:button>
+                                </div>
                             </flux:table.cell>
                         </flux:table.row>
                     @endforeach
