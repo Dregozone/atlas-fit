@@ -83,7 +83,7 @@ test('quick add uses the selected quantity', function () {
     $user = User::factory()->create();
     $this->actingAs($user);
 
-    $item = MealItem::create([
+    $item = MealItem::factory()->create([
         'name' => 'Quick Add Quantity Item',
         'carbs' => 10,
         'protein' => 10,
@@ -95,9 +95,12 @@ test('quick add uses the selected quantity', function () {
     Livewire::test('pages.nutrition')
         ->set("quickAddQuantities.{$item->id}", 4)
         ->call('quickAdd', $item->id)
-        ->assertSet('quickAddQuantity', 4);
+        ->assertSee('4 servings of')
+        ->assertSet("quickAddQuantities.{$item->id}", 1);
 
-    $consumed = Consumed::query()->where('user_id', $user->id)->where('meal_item_id', $item->id)->first();
+    $consumed = Consumed::query()
+        ->where('user_id', $user->id)
+        ->firstWhere('meal_item_id', $item->id);
 
     expect($consumed)->not->toBeNull();
     expect($consumed->quantity)->toBe(4);
@@ -107,7 +110,7 @@ test('quick add quantity is clamped between 1 and 10', function () {
     $user = User::factory()->create();
     $this->actingAs($user);
 
-    $item = MealItem::create([
+    $item = MealItem::factory()->create([
         'name' => 'Quick Add Clamp Item',
         'carbs' => 10,
         'protein' => 10,
@@ -119,16 +122,17 @@ test('quick add quantity is clamped between 1 and 10', function () {
     Livewire::test('pages.nutrition')
         ->set("quickAddQuantities.{$item->id}", 25)
         ->call('quickAdd', $item->id)
-        ->assertSet('quickAddQuantity', 10);
+        ->assertSet("quickAddQuantities.{$item->id}", 1);
 
     Livewire::test('pages.nutrition')
         ->set("quickAddQuantities.{$item->id}", 0)
         ->call('quickAdd', $item->id)
-        ->assertSet('quickAddQuantity', 1);
+        ->assertSet("quickAddQuantities.{$item->id}", 1);
 
     $quantities = Consumed::query()
         ->where('user_id', $user->id)
         ->where('meal_item_id', $item->id)
+        ->orderBy('id')
         ->pluck('quantity')
         ->all();
 

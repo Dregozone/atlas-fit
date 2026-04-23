@@ -10,6 +10,8 @@ use Livewire\Attributes\Validate;
 use Livewire\Component;
 
 new #[Title('Nutrition')] class extends Component {
+    private const QUICK_ADD_MIN = 1;
+    private const QUICK_ADD_MAX = 10;
 
     // Add new meal item form
     #[Validate('required|string|max:255')]
@@ -56,7 +58,15 @@ new #[Title('Nutrition')] class extends Component {
     #[Computed]
     public function foodItems()
     {
-        return MealItem::where('is_active', true)->orderBy('name')->get();
+        $items = MealItem::where('is_active', true)->orderBy('name')->get();
+
+        foreach ($items as $item) {
+            if (! array_key_exists($item->id, $this->quickAddQuantities)) {
+                $this->quickAddQuantities[$item->id] = self::QUICK_ADD_MIN;
+            }
+        }
+
+        return $items;
     }
 
     #[Computed]
@@ -209,7 +219,10 @@ new #[Title('Nutrition')] class extends Component {
     public function quickAdd(int $itemId): void
     {
         $item = MealItem::findOrFail($itemId, ['id', 'name']);
-        $quantity = max(1, min(10, (int) ($this->quickAddQuantities[$itemId] ?? 1)));
+        $quantity = max(
+            self::QUICK_ADD_MIN,
+            min(self::QUICK_ADD_MAX, (int) ($this->quickAddQuantities[$itemId] ?? self::QUICK_ADD_MIN))
+        );
 
         Consumed::create([
             'user_id'      => auth()->id(),
@@ -220,7 +233,7 @@ new #[Title('Nutrition')] class extends Component {
         $this->quickAddSuccess = true;
         $this->quickAddName = $item->name;
         $this->quickAddQuantity = $quantity;
-        $this->quickAddQuantities[$itemId] = $quantity;
+        $this->quickAddQuantities[$itemId] = self::QUICK_ADD_MIN;
         unset($this->todayConsumed, $this->todayTotals, $this->remainingMacros, $this->catalogData);
     }
 };
@@ -424,10 +437,9 @@ new #[Title('Nutrition')] class extends Component {
                                     <flux:input
                                         wire:model.live="quickAddQuantities.{{ $item->id }}"
                                         type="number"
-                                        min="1"
-                                        max="10"
+                                        min="{{ self::QUICK_ADD_MIN }}"
+                                        max="{{ self::QUICK_ADD_MAX }}"
                                         step="1"
-                                        value="{{ $quickAddQuantities[$item->id] ?? 1 }}"
                                         aria-label="Qty."
                                         class="w-16"
                                     />
