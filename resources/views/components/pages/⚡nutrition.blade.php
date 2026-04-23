@@ -10,6 +10,8 @@ use Livewire\Attributes\Validate;
 use Livewire\Component;
 
 new #[Title('Nutrition')] class extends Component {
+    private const QUICK_ADD_MIN = 1;
+    private const QUICK_ADD_MAX = 10;
 
     // Add new meal item form
     #[Validate('required|string|max:255')]
@@ -27,6 +29,8 @@ new #[Title('Nutrition')] class extends Component {
     public bool $itemAddedSuccess = false;
     public bool $quickAddSuccess = false;
     public string $quickAddName = '';
+    public int $quickAddQuantity = 1;
+    public array $quickAddQuantities = [];
 
     #[Computed]
     public function macroGoals(): array
@@ -54,7 +58,15 @@ new #[Title('Nutrition')] class extends Component {
     #[Computed]
     public function foodItems()
     {
-        return MealItem::where('is_active', true)->orderBy('name')->get();
+        $items = MealItem::where('is_active', true)->orderBy('name')->get();
+
+        foreach ($items as $item) {
+            if (! array_key_exists($item->id, $this->quickAddQuantities)) {
+                $this->quickAddQuantities[$item->id] = self::QUICK_ADD_MIN;
+            }
+        }
+
+        return $items;
     }
 
     #[Computed]
@@ -207,15 +219,21 @@ new #[Title('Nutrition')] class extends Component {
     public function quickAdd(int $itemId): void
     {
         $item = MealItem::findOrFail($itemId, ['id', 'name']);
+        $quantity = max(
+            self::QUICK_ADD_MIN,
+            min(self::QUICK_ADD_MAX, (int) ($this->quickAddQuantities[$itemId] ?? self::QUICK_ADD_MIN))
+        );
 
         Consumed::create([
             'user_id'      => auth()->id(),
             'meal_item_id' => $itemId,
-            'quantity'     => 1,
+            'quantity'     => $quantity,
         ]);
 
         $this->quickAddSuccess = true;
         $this->quickAddName = $item->name;
+        $this->quickAddQuantity = $quantity;
+        $this->quickAddQuantities[$itemId] = self::QUICK_ADD_MIN;
         unset($this->todayConsumed, $this->todayTotals, $this->remainingMacros, $this->catalogData);
     }
 };
@@ -380,7 +398,7 @@ new #[Title('Nutrition')] class extends Component {
 
             @if($quickAddSuccess)
                 <flux:callout icon="check-circle" color="green" class="mb-4">
-                    <flux:callout.text>1 serving of <strong>{{ $quickAddName }}</strong> added to today's diary!</flux:callout.text>
+                    <flux:callout.text>{{ $quickAddQuantity }} {{ \Illuminate\Support\Str::plural('serving', $quickAddQuantity) }} of <strong>{{ $quickAddName }}</strong> added to today's diary!</flux:callout.text>
                 </flux:callout>
             @endif
 
@@ -414,9 +432,21 @@ new #[Title('Nutrition')] class extends Component {
                             <flux:table.cell><span class="{{ $item->fatClass }}">{{ $item->fat }}g</span></flux:table.cell>
                             <flux:table.cell><span class="{{ $item->caloriesClass }}">{{ $item->calories }} kcal</span></flux:table.cell>
                             <flux:table.cell>
-                                <flux:button wire:click="quickAdd({{ $item->id }})" size="sm" variant="ghost" icon="plus-circle">
-                                    Add
-                                </flux:button>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs text-zinc-500">Qty.</span>
+                                    <flux:input
+                                        wire:model.live="quickAddQuantities.{{ $item->id }}"
+                                        type="number"
+                                        min="{{ self::QUICK_ADD_MIN }}"
+                                        max="{{ self::QUICK_ADD_MAX }}"
+                                        step="1"
+                                        aria-label="Qty."
+                                        class="w-16"
+                                    />
+                                    <flux:button wire:click="quickAdd({{ $item->id }})" size="sm" variant="ghost" icon="plus-circle">
+                                        Add
+                                    </flux:button>
+                                </div>
                             </flux:table.cell>
                         </flux:table.row>
                     @endforeach
