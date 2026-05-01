@@ -37,9 +37,8 @@ class ResetPasswordCommand extends Command
             return self::FAILURE;
         }
 
-        $user->forceFill([
-            'password' => $newPassword,
-        ])->save();
+        $user->password = $newPassword;
+        $user->save();
 
         $this->info("Password has been reset for {$email}.");
 
