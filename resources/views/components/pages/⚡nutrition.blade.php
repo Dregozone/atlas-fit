@@ -239,7 +239,7 @@ new #[Title('Nutrition')] class extends Component {
 };
 ?>
 
-    <div class="flex flex-col gap-6 p-6">
+    <div class="mx-auto flex w-full max-w-7xl flex-col gap-6 p-4 sm:p-6">
 
         <div>
             <flux:heading size="xl">Nutrition</flux:heading>
@@ -249,7 +249,7 @@ new #[Title('Nutrition')] class extends Component {
         {{-- Macro Goals Summary --}}
         @if($this->macroGoals['calories'])
             <flux:card>
-                <div class="flex items-center justify-between mb-3">
+                <div class="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                     <flux:heading size="lg">Daily Targets — {{ $this->macroGoals['goal'] }}</flux:heading>
                     <flux:text class="text-sm text-zinc-400">Based on your profile settings</flux:text>
                 </div>
@@ -300,7 +300,7 @@ new #[Title('Nutrition')] class extends Component {
                         <flux:error name="newItemName" />
                     </flux:field>
 
-                    <div class="grid grid-cols-3 gap-3">
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
                         <flux:field>
                             <flux:label>Carbs (g)</flux:label>
                             <flux:input wire:model.live="newItemCarbs" type="number" min="0" step="0.1" />
@@ -335,36 +335,64 @@ new #[Title('Nutrition')] class extends Component {
                 @if($this->todayConsumed->isEmpty())
                     <flux:text class="text-zinc-500">Nothing logged today yet.</flux:text>
                 @else
-                    <flux:table>
-                        <flux:table.columns>
-                            <flux:table.column>Item</flux:table.column>
-                            <flux:table.column>Qty</flux:table.column>
-                            <flux:table.column>P</flux:table.column>
-                            <flux:table.column>C</flux:table.column>
-                            <flux:table.column>F</flux:table.column>
-                            <flux:table.column>kcal</flux:table.column>
-                        </flux:table.columns>
-                        <flux:table.rows>
-                            @foreach($this->todayConsumed as $item)
-                                <flux:table.row>
-                                    <flux:table.cell class="font-medium">{{ $item->name }}</flux:table.cell>
-                                    <flux:table.cell>{{ $item->quantity }}</flux:table.cell>
-                                    <flux:table.cell>{{ round($item->protein) }}g</flux:table.cell>
-                                    <flux:table.cell>{{ round($item->carbs) }}g</flux:table.cell>
-                                    <flux:table.cell>{{ round($item->fat) }}g</flux:table.cell>
-                                    <flux:table.cell>{{ round($item->calories) }}</flux:table.cell>
+                    <div class="space-y-3 md:hidden">
+                        @foreach($this->todayConsumed as $item)
+                            <div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700" wire:key="consumed-mobile-{{ $loop->index }}-{{ $item->name }}">
+                                <div class="mb-2 flex items-start justify-between gap-3">
+                                    <flux:text class="min-w-0 truncate font-medium" title="{{ $item->name }}">{{ $item->name }}</flux:text>
+                                    <flux:text class="shrink-0 text-sm text-zinc-500">Qty {{ $item->quantity }}</flux:text>
+                                </div>
+                                <div class="grid grid-cols-4 gap-2 text-sm">
+                                    <flux:text>P {{ round($item->protein) }}g</flux:text>
+                                    <flux:text>C {{ round($item->carbs) }}g</flux:text>
+                                    <flux:text>F {{ round($item->fat) }}g</flux:text>
+                                    <flux:text>{{ round($item->calories) }} kcal</flux:text>
+                                </div>
+                            </div>
+                        @endforeach
+                        <div class="rounded-lg border border-zinc-300 p-3 font-semibold dark:border-zinc-600">
+                            <div class="mb-2">Daily total</div>
+                            <div class="grid grid-cols-4 gap-2 text-sm">
+                                <flux:text>P {{ round($this->todayTotals->protein) }}g</flux:text>
+                                <flux:text>C {{ round($this->todayTotals->carbs) }}g</flux:text>
+                                <flux:text>F {{ round($this->todayTotals->fat) }}g</flux:text>
+                                <flux:text>{{ round($this->todayTotals->calories) }} kcal</flux:text>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="hidden md:block">
+                        <flux:table>
+                            <flux:table.columns>
+                                <flux:table.column>Item</flux:table.column>
+                                <flux:table.column>Qty</flux:table.column>
+                                <flux:table.column>P</flux:table.column>
+                                <flux:table.column>C</flux:table.column>
+                                <flux:table.column>F</flux:table.column>
+                                <flux:table.column>kcal</flux:table.column>
+                            </flux:table.columns>
+                            <flux:table.rows>
+                                @foreach($this->todayConsumed as $item)
+                                    <flux:table.row>
+                                        <flux:table.cell class="font-medium">{{ $item->name }}</flux:table.cell>
+                                        <flux:table.cell>{{ $item->quantity }}</flux:table.cell>
+                                        <flux:table.cell>{{ round($item->protein) }}g</flux:table.cell>
+                                        <flux:table.cell>{{ round($item->carbs) }}g</flux:table.cell>
+                                        <flux:table.cell>{{ round($item->fat) }}g</flux:table.cell>
+                                        <flux:table.cell>{{ round($item->calories) }}</flux:table.cell>
+                                    </flux:table.row>
+                                @endforeach
+                                <flux:table.row class="font-semibold border-t-2 dark:border-zinc-600">
+                                    <flux:table.cell>Total</flux:table.cell>
+                                    <flux:table.cell>—</flux:table.cell>
+                                    <flux:table.cell>{{ round($this->todayTotals->protein) }}g</flux:table.cell>
+                                    <flux:table.cell>{{ round($this->todayTotals->carbs) }}g</flux:table.cell>
+                                    <flux:table.cell>{{ round($this->todayTotals->fat) }}g</flux:table.cell>
+                                    <flux:table.cell>{{ round($this->todayTotals->calories) }}</flux:table.cell>
                                 </flux:table.row>
-                            @endforeach
-                            <flux:table.row class="font-semibold border-t-2 dark:border-zinc-600">
-                                <flux:table.cell>Total</flux:table.cell>
-                                <flux:table.cell>—</flux:table.cell>
-                                <flux:table.cell>{{ round($this->todayTotals->protein) }}g</flux:table.cell>
-                                <flux:table.cell>{{ round($this->todayTotals->carbs) }}g</flux:table.cell>
-                                <flux:table.cell>{{ round($this->todayTotals->fat) }}g</flux:table.cell>
-                                <flux:table.cell>{{ round($this->todayTotals->calories) }}</flux:table.cell>
-                            </flux:table.row>
-                        </flux:table.rows>
-                    </flux:table>
+                            </flux:table.rows>
+                        </flux:table>
+                    </div>
                 @endif
             </flux:card>
 
@@ -403,6 +431,7 @@ new #[Title('Nutrition')] class extends Component {
             @endif
 
             <flux:input x-model="search" clearable placeholder="Start typing a food or drink..." class="mb-4" />
+            <flux:text class="mb-3 text-xs text-zinc-500 md:hidden">Tap an item name to view its full text.</flux:text>
 
             @if($this->macroGoals['calories'])
                 <flux:text class="mb-3 text-xs text-zinc-500">
@@ -414,47 +443,85 @@ new #[Title('Nutrition')] class extends Component {
                 </flux:text>
             @endif
 
-            <flux:table>
-                <flux:table.columns>
-                    <flux:table.column>Name</flux:table.column>
-                    <flux:table.column>Protein</flux:table.column>
-                    <flux:table.column>Carbs</flux:table.column>
-                    <flux:table.column>Fat</flux:table.column>
-                    <flux:table.column>Calories</flux:table.column>
-                    <flux:table.column>Quick Add</flux:table.column>
-                </flux:table.columns>
-                <flux:table.rows>
-                    @foreach($this->catalogData as $item)
-                        <flux:table.row wire:key="catalog-{{ $item->id }}" x-show="isVisible({{ $loop->index }})">
-                            <flux:table.cell class="font-medium">{{ $item->name }}</flux:table.cell>
-                            <flux:table.cell><span class="{{ $item->proteinClass }}">{{ $item->protein }}g</span></flux:table.cell>
-                            <flux:table.cell><span class="{{ $item->carbsClass }}">{{ $item->carbs }}g</span></flux:table.cell>
-                            <flux:table.cell><span class="{{ $item->fatClass }}">{{ $item->fat }}g</span></flux:table.cell>
-                            <flux:table.cell><span class="{{ $item->caloriesClass }}">{{ $item->calories }} kcal</span></flux:table.cell>
-                            <flux:table.cell>
-                                <div class="flex items-center gap-2">
-                                    <span class="text-xs text-zinc-500">Qty.</span>
-                                    <flux:input
-                                        wire:model.live="quickAddQuantities.{{ $item->id }}"
-                                        type="number"
-                                        min="{{ self::QUICK_ADD_MIN }}"
-                                        max="{{ self::QUICK_ADD_MAX }}"
-                                        step="1"
-                                        aria-label="Qty."
-                                        class="w-16"
-                                    />
-                                    <flux:button wire:click="quickAdd({{ $item->id }})" size="sm" variant="ghost" icon="plus-circle">
-                                        Add
-                                    </flux:button>
-                                </div>
-                            </flux:table.cell>
+            <div class="space-y-3 md:hidden">
+                @foreach($this->catalogData as $item)
+                    <div wire:key="catalog-mobile-{{ $item->id }}" x-show="isVisible({{ $loop->index }})" class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+                        <div class="mb-3 flex items-start justify-between gap-3">
+                            <flux:tooltip :content="$item->name" position="top">
+                                <button type="button" class="min-w-0 truncate text-left font-medium">
+                                    {{ $item->name }}
+                                </button>
+                            </flux:tooltip>
+                            <flux:text class="shrink-0 text-xs text-zinc-500">{{ $item->calories }} kcal</flux:text>
+                        </div>
+                        <div class="mb-3 grid grid-cols-3 gap-2 text-sm">
+                            <flux:text><span class="{{ $item->proteinClass }}">P {{ $item->protein }}g</span></flux:text>
+                            <flux:text><span class="{{ $item->carbsClass }}">C {{ $item->carbs }}g</span></flux:text>
+                            <flux:text><span class="{{ $item->fatClass }}">F {{ $item->fat }}g</span></flux:text>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-zinc-500">Qty.</span>
+                            <flux:input
+                                wire:model.live="quickAddQuantities.{{ $item->id }}"
+                                type="number"
+                                min="{{ self::QUICK_ADD_MIN }}"
+                                max="{{ self::QUICK_ADD_MAX }}"
+                                step="1"
+                                aria-label="Qty. for {{ $item->name }}"
+                                class="w-16"
+                            />
+                            <flux:button wire:click="quickAdd({{ $item->id }})" size="sm" variant="ghost" icon="plus-circle" class="ml-auto">
+                                Add
+                            </flux:button>
+                        </div>
+                    </div>
+                @endforeach
+                <flux:text x-show="!hasResults" class="text-center text-zinc-500">No food items match your search.</flux:text>
+            </div>
+
+            <div class="hidden md:block">
+                <flux:table>
+                    <flux:table.columns>
+                        <flux:table.column>Name</flux:table.column>
+                        <flux:table.column>Protein</flux:table.column>
+                        <flux:table.column>Carbs</flux:table.column>
+                        <flux:table.column>Fat</flux:table.column>
+                        <flux:table.column>Calories</flux:table.column>
+                        <flux:table.column>Quick Add</flux:table.column>
+                    </flux:table.columns>
+                    <flux:table.rows>
+                        @foreach($this->catalogData as $item)
+                            <flux:table.row wire:key="catalog-{{ $item->id }}" x-show="isVisible({{ $loop->index }})">
+                                <flux:table.cell class="font-medium">{{ $item->name }}</flux:table.cell>
+                                <flux:table.cell><span class="{{ $item->proteinClass }}">{{ $item->protein }}g</span></flux:table.cell>
+                                <flux:table.cell><span class="{{ $item->carbsClass }}">{{ $item->carbs }}g</span></flux:table.cell>
+                                <flux:table.cell><span class="{{ $item->fatClass }}">{{ $item->fat }}g</span></flux:table.cell>
+                                <flux:table.cell><span class="{{ $item->caloriesClass }}">{{ $item->calories }} kcal</span></flux:table.cell>
+                                <flux:table.cell>
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs text-zinc-500">Qty.</span>
+                                        <flux:input
+                                            wire:model.live="quickAddQuantities.{{ $item->id }}"
+                                            type="number"
+                                            min="{{ self::QUICK_ADD_MIN }}"
+                                            max="{{ self::QUICK_ADD_MAX }}"
+                                            step="1"
+                                            aria-label="Qty."
+                                            class="w-16"
+                                        />
+                                        <flux:button wire:click="quickAdd({{ $item->id }})" size="sm" variant="ghost" icon="plus-circle">
+                                            Add
+                                        </flux:button>
+                                    </div>
+                                </flux:table.cell>
+                            </flux:table.row>
+                        @endforeach
+                        <flux:table.row x-show="!hasResults">
+                            <flux:table.cell colspan="6" class="text-center text-zinc-500">No food items match your search.</flux:table.cell>
                         </flux:table.row>
-                    @endforeach
-                    <flux:table.row x-show="!hasResults">
-                        <flux:table.cell colspan="6" class="text-center text-zinc-500">No food items match your search.</flux:table.cell>
-                    </flux:table.row>
-                </flux:table.rows>
-            </flux:table>
+                    </flux:table.rows>
+                </flux:table>
+            </div>
 
             <div x-show="!search && hiddenCount > 0" class="mt-3 text-center">
                 <flux:button variant="ghost" size="sm" x-on:click="limit = names.length">

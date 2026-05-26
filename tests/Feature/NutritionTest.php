@@ -16,6 +16,14 @@ test('authenticated users can visit the nutrition page', function () {
     $this->get(route('nutrition'))->assertOk();
 });
 
+test('nutrition page includes mobile catalogue guidance', function () {
+    $this->actingAs(User::factory()->create());
+
+    $this->get(route('nutrition'))
+        ->assertOk()
+        ->assertSee('Tap an item name to view its full text.');
+});
+
 test('a new food item can be added to the catalogue', function () {
     $this->actingAs(User::factory()->create());
 

@@ -9,11 +9,13 @@ use Livewire\Attributes\Validate;
 use Livewire\Component;
 
 new #[Title('Weight Tracking')] class extends Component {
+    private const MAINTAINING_THRESHOLD_LBS = 0.3;
 
     #[Validate('required|numeric|min:50|max:1000')]
     public float $weightInLbs = 0;
 
     public bool $showSuccess = false;
+    public string $chartRange = '1m';
 
     #[Computed]
     public function recentWeights()
@@ -85,15 +87,189 @@ new #[Title('Weight Tracking')] class extends Component {
     #[Computed]
     public function chartData(): array
     {
-        return $this->recentWeights
-            ->reverse()
-            ->values()
-            ->map(fn ($entry, $i) => [
-                'label' => $i + 1,
-                'weight' => round($entry->weight_in_lbs, 1),
-                'date' => $entry->created_at->format('d M'),
+        $range = $this->chartRangeConfig;
+
+        $dailyAverages = BodyWeight::query()
+            ->where('user_id', auth()->id())
+            ->when($range['start'], fn ($query) => $query->where('created_at', '>=', $range['start']))
+            ->selectRaw('DATE(created_at) as entry_date')
+            ->selectRaw('AVG(weight_in_lbs) as average_weight')
+            ->groupBy('entry_date')
+            ->orderBy('entry_date')
+            ->get()
+            ->map(fn (BodyWeight $entry) => [
+                'date' => $entry->entry_date,
+                'weight' => round((float) $entry->average_weight, 1),
             ])
+            ->values()
             ->toArray();
+
+        $chunkDays = $range['chunk_days'];
+
+        if ($chunkDays <= 1) {
+            return collect($dailyAverages)
+                ->map(function (array $entry) {
+                    $date = Carbon::parse($entry['date']);
+
+                    return [
+                        'label' => $date->format('j M'),
+                        'weight' => $entry['weight'],
+                        'date' => $date->format('j M Y'),
+                    ];
+                })
+                ->toArray();
+        }
+
+        return collect($dailyAverages)
+            ->chunk($chunkDays)
+            ->map(function ($chunk) {
+                $start = Carbon::parse($chunk->first()['date']);
+                $end = Carbon::parse($chunk->last()['date']);
+
+                return [
+                    'label' => $start->isSameDay($end)
+                        ? $start->format('j M')
+                        : ($start->year === $end->year
+                            ? $start->format('j M').' - '.$end->format('j M')
+                            : $start->format('j M Y').' - '.$end->format('j M Y')),
+                    'weight' => round($chunk->avg('weight'), 1),
+                    'date' => $end->format('j M Y'),
+                ];
+            })
+            ->values()
+            ->toArray();
+    }
+
+    #[Computed]
+    public function chartRangeConfig(): array
+    {
+        $ranges = $this->chartRanges();
+
+        return $ranges[$this->chartRange] ?? $ranges['1m'];
+    }
+
+    #[Computed]
+    public function chartRangeButtons(): array
+    {
+        return collect($this->chartRanges())
+            ->map(fn (array $range, string $value) => [
+                'value' => $value,
+                'button_label' => $range['button_label'],
+            ])
+            ->values()
+            ->toArray();
+    }
+
+    #[Computed]
+    public function chartTrend(): array
+    {
+        if (count($this->chartData) < 2) {
+            return [
+                'direction' => 'Not enough data yet',
+                'change' => 0,
+                'color' => 'zinc',
+            ];
+        }
+
+        $first = $this->chartData[0]['weight'];
+        $last = $this->chartData[count($this->chartData) - 1]['weight'];
+        $change = round($last - $first, 1);
+
+        if (abs($change) <= self::MAINTAINING_THRESHOLD_LBS) {
+            return [
+                'direction' => 'Maintaining',
+                'change' => $change,
+                'color' => 'zinc',
+            ];
+        }
+
+        if ($change > 0) {
+            return [
+                'direction' => 'Gaining',
+                'change' => $change,
+                'color' => 'red',
+            ];
+        }
+
+        return [
+            'direction' => 'Losing',
+            'change' => $change,
+            'color' => 'green',
+        ];
+    }
+
+    #[Computed]
+    public function chartRangeLabel(): string
+    {
+        return $this->chartRangeConfig['label'];
+    }
+
+    #[Computed]
+    public function chartRangeResolution(): string
+    {
+        return $this->chartRangeConfig['resolution'];
+    }
+
+    public function setChartRange(string $range): void
+    {
+        if (! auth()->check()) {
+            return;
+        }
+
+        if (! array_key_exists($range, $this->chartRanges())) {
+            return;
+        }
+
+        $this->chartRange = $range;
+        $this->resetChartComputedProperties();
+    }
+
+    private function chartRanges(): array
+    {
+        $referenceNow = Carbon::now();
+
+        return [
+            '1m' => [
+                'button_label' => '1M',
+                'label' => 'Last month',
+                'start' => $referenceNow->copy()->subMonth()->startOfDay(),
+                'chunk_days' => 1,
+                'resolution' => 'daily average points',
+            ],
+            '3m' => [
+                'button_label' => '3M',
+                'label' => 'Last 3 months',
+                'start' => $referenceNow->copy()->subMonths(3)->startOfDay(),
+                'chunk_days' => 3,
+                'resolution' => '3-day average points',
+            ],
+            '6m' => [
+                'button_label' => '6M',
+                'label' => 'Last 6 months',
+                'start' => $referenceNow->copy()->subMonths(6)->startOfDay(),
+                'chunk_days' => 7,
+                'resolution' => 'weekly average points',
+            ],
+            '1y' => [
+                'button_label' => '1Y',
+                'label' => 'Last year',
+                'start' => $referenceNow->copy()->subYear()->startOfDay(),
+                'chunk_days' => 14,
+                'resolution' => '2-week average points',
+            ],
+            'all' => [
+                'button_label' => 'Since Joining',
+                'label' => 'Since joining',
+                'start' => null,
+                'chunk_days' => 30,
+                'resolution' => 'monthly average points',
+            ],
+        ];
+    }
+
+    private function resetChartComputedProperties(): void
+    {
+        unset($this->chartRangeConfig, $this->chartRangeLabel, $this->chartRangeResolution, $this->chartData, $this->chartTrend);
     }
 
     public function logWeight(): void
@@ -107,7 +283,8 @@ new #[Title('Weight Tracking')] class extends Component {
 
         $this->reset('weightInLbs');
         $this->showSuccess = true;
-        unset($this->recentWeights, $this->recentLossPerDay, $this->chartData);
+        unset($this->recentWeights, $this->recentLossPerDay);
+        $this->resetChartComputedProperties();
     }
 };
 ?>
@@ -168,6 +345,55 @@ new #[Title('Weight Tracking')] class extends Component {
                 </flux:callout.text>
             </flux:callout>
         @endif
+
+        <flux:card class="space-y-4">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    <flux:heading size="lg">Weight Trend</flux:heading>
+                    <flux:text class="text-zinc-500">
+                        {{ $this->chartRangeLabel }} · {{ $this->chartRangeResolution }}
+                    </flux:text>
+                </div>
+                <flux:badge color="{{ $this->chartTrend['color'] }}">
+                    {{ $this->chartTrend['direction'] }}
+                    @if($this->chartTrend['change'] !== 0)
+                        ({{ $this->chartTrend['change'] > 0 ? '+' : '' }}{{ $this->chartTrend['change'] }} lbs)
+                    @endif
+                </flux:badge>
+            </div>
+
+            <div class="flex flex-wrap gap-2" role="group" aria-label="Chart range">
+                @foreach($this->chartRangeButtons as $button)
+                    <flux:button size="sm" variant="{{ $chartRange === $button['value'] ? 'primary' : 'ghost' }}" wire:click="setChartRange('{{ $button['value'] }}')">
+                        {{ $button['button_label'] }}
+                    </flux:button>
+                @endforeach
+            </div>
+
+            @if(empty($this->chartData))
+                <flux:text class="text-zinc-500">No chart data available for this period yet.</flux:text>
+            @else
+                <flux:chart wire:model="chartData" class="aspect-[3/1]">
+                    <flux:chart.svg>
+                        <flux:chart.line field="weight" class="text-blue-500 dark:text-blue-400" curve="none" />
+                        <flux:chart.area field="weight" class="text-blue-200/40 dark:text-blue-400/20" curve="none" />
+                        <flux:chart.axis axis="x" field="label">
+                            <flux:chart.axis.tick />
+                            <flux:chart.axis.line />
+                        </flux:chart.axis>
+                        <flux:chart.axis axis="y">
+                            <flux:chart.axis.grid />
+                            <flux:chart.axis.tick />
+                        </flux:chart.axis>
+                        <flux:chart.cursor />
+                    </flux:chart.svg>
+                    <flux:chart.tooltip>
+                        <flux:chart.tooltip.heading field="date" />
+                        <flux:chart.tooltip.value field="weight" label="Weight (lbs)" />
+                    </flux:chart.tooltip>
+                </flux:chart>
+            @endif
+        </flux:card>
 
         <div class="grid gap-6 lg:grid-cols-2">
 
