@@ -373,24 +373,26 @@ new #[Title('Weight Tracking')] class extends Component {
             @if(empty($this->chartData))
                 <flux:text class="text-zinc-500">No chart data available for this period yet.</flux:text>
             @else
-                <flux:chart wire:model="chartData" class="aspect-[3/1]">
-                    <flux:chart.svg>
-                        <flux:chart.line field="weight" class="text-blue-500 dark:text-blue-400" curve="none" />
-                        <flux:chart.area field="weight" class="text-blue-200/40 dark:text-blue-400/20" curve="none" />
-                        <flux:chart.axis axis="x" field="label">
-                            <flux:chart.axis.tick />
-                            <flux:chart.axis.line />
-                        </flux:chart.axis>
-                        <flux:chart.axis axis="y">
-                            <flux:chart.axis.grid />
-                            <flux:chart.axis.tick />
-                        </flux:chart.axis>
-                        <flux:chart.cursor />
-                    </flux:chart.svg>
-                    <flux:chart.tooltip>
-                        <flux:chart.tooltip.heading field="date" />
-                        <flux:chart.tooltip.value field="weight" label="Weight (lbs)" />
-                    </flux:chart.tooltip>
+                <flux:chart :value="$this->chartData">
+                    <flux:chart.viewport class="aspect-[3/1]">
+                        <flux:chart.svg>
+                            <flux:chart.line field="weight" class="text-blue-500 dark:text-blue-400" curve="none" />
+                            <flux:chart.area field="weight" class="text-blue-200/40 dark:text-blue-400/20" curve="none" />
+                            <flux:chart.axis axis="x" field="label">
+                                <flux:chart.axis.tick />
+                                <flux:chart.axis.line />
+                            </flux:chart.axis>
+                            <flux:chart.axis axis="y">
+                                <flux:chart.axis.grid />
+                                <flux:chart.axis.tick />
+                            </flux:chart.axis>
+                            <flux:chart.cursor />
+                        </flux:chart.svg>
+                        <flux:chart.tooltip>
+                            <flux:chart.tooltip.heading field="date" />
+                            <flux:chart.tooltip.value field="weight" label="Weight (lbs)" />
+                        </flux:chart.tooltip>
+                    </flux:chart.viewport>
                 </flux:chart>
             @endif
         </flux:card>
