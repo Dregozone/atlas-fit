@@ -14,6 +14,8 @@ new #[Title('Nutrition')] class extends Component {
     private const QUICK_ADD_MAX = 10;
 
     // Add new meal item form
+    public bool $showAddItemForm = false;
+
     #[Validate('required|string|max:255')]
     public string $newItemName = '';
 
