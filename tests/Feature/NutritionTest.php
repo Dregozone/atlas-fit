@@ -1,7 +1,7 @@
 <?php
 
-use App\Models\MealItem;
 use App\Models\Consumed;
+use App\Models\MealItem;
 use App\Models\User;
 use Livewire\Livewire;
 

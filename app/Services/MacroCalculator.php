@@ -45,7 +45,7 @@ class MacroCalculator
         $modifier = match ($this->goal) {
             'Bulking' => self::BULKING,
             'Cutting' => self::CUTTING,
-            default   => self::MAINTAINING,
+            default => self::MAINTAINING,
         };
 
         $this->protein *= $modifier;
