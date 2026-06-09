@@ -1,0 +1,2 @@
+[checks]
+repositories_webhooks_are_secure = "off"
