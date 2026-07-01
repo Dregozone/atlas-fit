@@ -19,7 +19,7 @@ class Macros extends Controller
         if (empty($identifier) || empty($token)) {
             return response()->json([
                 'message' => 'Missing identifier or token',
-            ], 400);
+            ], 400)->header('Cache-Control', 'no-store');
         }
 
         // Check that a user exists with the provided identifier and token
@@ -32,7 +32,7 @@ class Macros extends Controller
         if (! $user) {
             return response()->json([
                 'message' => 'Invalid identifier or token',
-            ], 401);
+            ], 401)->header('Cache-Control', 'no-store');
         }
 
         // Find consumed today
@@ -53,7 +53,7 @@ class Macros extends Controller
         if (! $user->body_weight_lbs || ! $user->fitness_goal) {
             return response()->json([
                 'message' => 'User body weight and fitness goal are required to calculate macros',
-            ], 400);
+            ], 400)->header('Cache-Control', 'no-store');
         }
 
         $calc = new MacroCalculator;
@@ -76,6 +76,6 @@ class Macros extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
             ],
-        ]);
+        ])->header('Cache-Control', 'no-store');
     }
 }

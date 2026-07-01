@@ -8,6 +8,7 @@ use App\Models\Rotation;
 use App\Models\User;
 use App\Models\Workout;
 use App\Models\WorkoutSession;
+use Carbon\CarbonInterface;
 
 class UpcomingWorkouts extends Controller
 {
@@ -20,7 +21,7 @@ class UpcomingWorkouts extends Controller
         if (empty($identifier) || empty($token)) {
             return response()->json([
                 'message' => 'Missing identifier or token',
-            ], 400);
+            ], 400)->header('Cache-Control', 'no-store');
         }
 
         // Check that a user exists with the provided identifier and token
@@ -33,7 +34,7 @@ class UpcomingWorkouts extends Controller
         if (! $user) {
             return response()->json([
                 'message' => 'Invalid identifier or token',
-            ], 401);
+            ], 401)->header('Cache-Control', 'no-store');
         }
 
         // At this point the user is authenticated, we can return the upcoming scheduled workouts for this user for today.
@@ -49,7 +50,8 @@ class UpcomingWorkouts extends Controller
         if (! $day || empty($day->session)) {
             return response()->json([
                 'message' => 'No workout scheduled for today',
-            ], 200);
+                'nextWorkout' => $this->resolveNextWorkout($date),
+            ], 200)->header('Cache-Control', 'no-store');
         }
 
         $session = WorkoutSession::where('session', $day->session)->first();
@@ -70,6 +72,42 @@ class UpcomingWorkouts extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
             ],
-        ]);
+        ])->header('Cache-Control', 'no-store');
+    }
+
+    /**
+     * Find the next scheduled workout day within 7 days from the given date.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function resolveNextWorkout(CarbonInterface $from): ?array
+    {
+        for ($i = 1; $i <= 7; $i++) {
+            $nextDate = $from->copy()->addDays($i);
+            $nextDay = Day::where('day', $nextDate->format('l'))->first();
+
+            if (! $nextDay || empty($nextDay->session)) {
+                continue;
+            }
+
+            $nextRotationWeek = ((int) $nextDate->format('W') % 3) + 1;
+            $nextSession = WorkoutSession::where('session', $nextDay->session)->first();
+
+            $primary = $nextSession
+                ? Workout::where('session', $nextSession->primary_muscle_group)->orderBy('exercise_no')->get()
+                : collect();
+            $secondary = $nextSession
+                ? Workout::where('session', $nextSession->secondary_muscle_group)->orderBy('exercise_no')->get()
+                : collect();
+
+            return [
+                'date' => $nextDate->format('Y-m-d'),
+                'day' => $nextDate->format('l'),
+                'rotation' => Rotation::where('week', $nextRotationWeek)->first(),
+                'upcomingWorkouts' => $primary->concat($secondary)->values(),
+            ];
+        }
+
+        return null;
     }
 }
