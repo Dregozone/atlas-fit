@@ -12,7 +12,7 @@ new #[Title('Weight Tracking')] class extends Component {
     private const MAINTAINING_THRESHOLD_LBS = 0.3;
 
     #[Validate('required|numeric|min:50|max:1000')]
-    public float $weightInLbs = 0;
+    public ?float $weightInLbs = null;
 
     public bool $showSuccess = false;
     public string $chartRange = '1m';
@@ -42,6 +42,7 @@ new #[Title('Weight Tracking')] class extends Component {
                 'current_weight' => 0,
                 'end_goal' => 0,
                 'target_weight' => 0,
+                'latest_weight' => 0,
                 'milestone_date' => null,
                 'days_remaining' => 0,
                 'required_loss_per_day' => 0,
@@ -50,14 +51,18 @@ new #[Title('Weight Tracking')] class extends Component {
 
         $daysRemaining = (int) Carbon::now()->diffInDays(Carbon::parse($goal->milestone_date), false);
 
+        // Measure the remaining distance from the most recent weigh-in, falling back to the start weight.
+        $latestWeight = (float) ($this->recentWeights->first()?->weight_in_lbs ?? $goal->start_weight);
+
         $requiredLossPerDay = $daysRemaining > 0
-            ? round(($goal->start_weight - $goal->milestone_goal_weight) / $daysRemaining, 2)
+            ? round(($latestWeight - $goal->milestone_goal_weight) / $daysRemaining, 2)
             : 0;
 
         return [
             'current_weight' => round($goal->start_weight, 1),
             'end_goal' => round($goal->end_goal_weight, 1),
             'target_weight' => round($goal->milestone_goal_weight, 1),
+            'latest_weight' => round($latestWeight, 1),
             'milestone_date' => $goal->milestone_date,
             'days_remaining' => $daysRemaining,
             'required_loss_per_day' => $requiredLossPerDay,
@@ -286,7 +291,7 @@ new #[Title('Weight Tracking')] class extends Component {
         $loggedWeight = (float) $this->weightInLbs;
         $this->reset('weightInLbs');
         $this->showSuccess = true;
-        unset($this->recentWeights, $this->recentLossPerDay);
+        unset($this->recentWeights, $this->recentLossPerDay, $this->goalStats);
         $this->resetChartComputedProperties();
 
         $this->dispatch('celebrate', message: $this->weighInMessage($previousWeight, $loggedWeight));
@@ -399,7 +404,7 @@ new #[Title('Weight Tracking')] class extends Component {
                 <div class="grid gap-4 sm:grid-cols-2">
                     <x-ui.stat icon="flag" tone="sky"
                         :value="($stats['required_loss_per_day'] > 0 ? $stats['required_loss_per_day'] : '—').' lbs/day'"
-                        :label="'Required loss rate to hit milestone by '.\Illuminate\Support\Carbon::parse($stats['milestone_date'])->format('j M Y')" />
+                        :label="'Required loss rate from your latest weigh-in to hit milestone by '.\Illuminate\Support\Carbon::parse($stats['milestone_date'])->format('j M Y')" />
                     <x-ui.stat icon="arrow-trending-down" :tone="$this->recentLossPerDay < 0 ? 'emerald' : 'amber'"
                         :value="$this->recentLossPerDay.' lbs/entry'"
                         label="Average recent change (last 10 entries)" />

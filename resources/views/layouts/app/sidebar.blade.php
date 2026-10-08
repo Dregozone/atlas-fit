@@ -35,13 +35,13 @@
                     @endforeach
                 </flux:sidebar.group>
 
-                @if(auth()->user()?->is_admin)
+                @can('manage-schedule')
                 <flux:sidebar.group :heading="__('Admin')" class="grid">
                     <flux:sidebar.item icon="adjustments-horizontal" :href="route('admin.schedule')" :current="request()->routeIs('admin.*')" wire:navigate>
                         {{ __('Manage Schedule') }}
                     </flux:sidebar.item>
                 </flux:sidebar.group>
-                @endif
+                @endcan
             </flux:sidebar.nav>
 
             <flux:spacer />

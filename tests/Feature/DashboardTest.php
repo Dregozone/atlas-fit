@@ -1,6 +1,8 @@
 <?php
 
+use App\Models\CompletedWorkout;
 use App\Models\User;
+use Livewire\Livewire;
 
 test('guests are redirected to the login page', function () {
     $response = $this->get(route('dashboard'));
@@ -60,4 +62,43 @@ test('the dashboard prompts users without a fitness profile to set one', functio
         ->assertOk()
         ->assertSee('Set your profile goals')
         ->assertSee('to see macro targets');
+});
+
+test('the dashboard shows personal bests for logged benchmark lifts', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    foreach ([185, 205] as $weight) {
+        CompletedWorkout::create([
+            'user_id' => $user->id,
+            'equipment' => '(Ben.) Bench press',
+            'sets' => 5,
+            'reps' => 5,
+            'weight' => $weight,
+            'is_deleted' => false,
+        ]);
+    }
+
+    $personalBests = Livewire::test('pages.dashboard')->get('personalBests');
+
+    expect(collect($personalBests)->firstWhere('name', 'Bench press')['lbs'])->toEqual(205);
+    expect(collect($personalBests)->firstWhere('name', 'Squat')['lbs'])->toBeNull();
+});
+
+test('deleted workouts do not count towards personal bests', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    CompletedWorkout::create([
+        'user_id' => $user->id,
+        'equipment' => '(Ben.) Deadlift',
+        'sets' => 1,
+        'reps' => 1,
+        'weight' => 500,
+        'is_deleted' => true,
+    ]);
+
+    $personalBests = Livewire::test('pages.dashboard')->get('personalBests');
+
+    expect(collect($personalBests)->firstWhere('name', 'Deadlift')['lbs'])->toBeNull();
 });

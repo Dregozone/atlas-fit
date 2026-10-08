@@ -70,6 +70,11 @@ new #[Title('Manage Schedule')] class extends Component {
 
     public string $successMessage = '';
 
+    public function mount(): void
+    {
+        $this->authorize('manage-schedule');
+    }
+
     #[Computed]
     public function rotations()
     {
@@ -100,6 +105,8 @@ new #[Title('Manage Schedule')] class extends Component {
 
     public function editRotation(int $id): void
     {
+        $this->authorize('manage-schedule');
+
         $rotation = Rotation::findOrFail($id);
         $this->editingRotationId = $id;
         $this->rotationWeek = $rotation->week;
@@ -111,6 +118,8 @@ new #[Title('Manage Schedule')] class extends Component {
 
     public function saveRotation(): void
     {
+        $this->authorize('manage-schedule');
+
         $this->validateOnly('rotationWeek');
         $this->validateOnly('rotationProgram');
         $this->validateOnly('rotationSets');
@@ -139,6 +148,8 @@ new #[Title('Manage Schedule')] class extends Component {
 
     public function editDay(int $id): void
     {
+        $this->authorize('manage-schedule');
+
         $day = Day::findOrFail($id);
         $this->editingDayId = $id;
         $this->dayName = $day->day;
@@ -147,6 +158,8 @@ new #[Title('Manage Schedule')] class extends Component {
 
     public function saveDay(): void
     {
+        $this->authorize('manage-schedule');
+
         $this->validateOnly('dayName');
 
         Day::findOrFail($this->editingDayId)->update([
@@ -168,6 +181,8 @@ new #[Title('Manage Schedule')] class extends Component {
 
     public function editWorkout(int $id): void
     {
+        $this->authorize('manage-schedule');
+
         $workout = Workout::findOrFail($id);
         $this->editingWorkoutId = $id;
         $this->workoutSession = $workout->session;
@@ -178,6 +193,8 @@ new #[Title('Manage Schedule')] class extends Component {
 
     public function saveWorkout(): void
     {
+        $this->authorize('manage-schedule');
+
         $this->validateOnly('workoutSession');
         $this->validateOnly('workoutEquipment');
         $this->validateOnly('workoutExerciseNo');

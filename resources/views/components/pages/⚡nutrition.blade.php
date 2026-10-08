@@ -162,6 +162,7 @@ new #[Title('Nutrition')] class extends Component {
             ->where('consumeds.user_id', auth()->id())
             ->whereDate('consumeds.created_at', Carbon::today())
             ->selectRaw('
+                meal_items.id AS meal_item_id,
                 meal_items.name,
                 SUM(consumeds.quantity) AS quantity,
                 SUM(consumeds.quantity * meal_items.carbs) AS carbs,
@@ -169,7 +170,7 @@ new #[Title('Nutrition')] class extends Component {
                 SUM(consumeds.quantity * meal_items.fat) AS fat,
                 SUM(consumeds.quantity * meal_items.calories) AS calories
             ')
-            ->groupBy('meal_items.name')
+            ->groupBy('meal_items.id', 'meal_items.name')
             ->get();
     }
 
@@ -241,6 +242,21 @@ new #[Title('Nutrition')] class extends Component {
         unset($this->todayConsumed, $this->todayTotals, $this->remainingMacros, $this->catalogData);
 
         $this->dispatch('celebrate', message: "{$item->name} logged — nicely fuelled!");
+    }
+
+    /**
+     * Remove all of today's diary entries for the given food item.
+     */
+    public function removeConsumed(int $mealItemId): void
+    {
+        Consumed::query()
+            ->where('user_id', auth()->id())
+            ->where('meal_item_id', $mealItemId)
+            ->whereDate('created_at', Carbon::today())
+            ->delete();
+
+        $this->quickAddSuccess = false;
+        unset($this->todayConsumed, $this->todayTotals, $this->remainingMacros, $this->catalogData);
     }
 };
 ?>
@@ -424,10 +440,20 @@ new #[Title('Nutrition')] class extends Component {
             @else
                 <ul class="space-y-2">
                     @foreach($this->todayConsumed as $item)
-                        <li class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5" wire:key="consumed-{{ $loop->index }}-{{ $item->name }}">
+                        <li class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5" wire:key="consumed-{{ $item->meal_item_id }}">
                             <div class="flex items-start justify-between gap-3">
                                 <p class="min-w-0 truncate text-sm font-medium" title="{{ $item->name }}">{{ $item->name }}</p>
-                                <flux:badge size="sm" color="zinc" class="shrink-0">× {{ $item->quantity }}</flux:badge>
+                                <div class="flex shrink-0 items-center gap-1">
+                                    <flux:badge size="sm" color="zinc">× {{ $item->quantity }}</flux:badge>
+                                    <flux:button
+                                        wire:click="removeConsumed({{ $item->meal_item_id }})"
+                                        wire:confirm="Remove {{ $item->name }} from today's diary?"
+                                        variant="ghost"
+                                        size="xs"
+                                        icon="trash"
+                                        aria-label="Remove {{ $item->name }} from today's diary"
+                                    />
+                                </div>
                             </div>
                             <p class="mt-1 flex flex-wrap gap-x-3 text-xs tabular-nums text-zinc-600 dark:text-zinc-400">
                                 <span>P {{ round($item->protein) }}g</span>

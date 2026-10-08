@@ -162,3 +162,74 @@ test('saving body weight goals celebrates', function () {
         ->assertSee('Goals saved successfully!')
         ->assertDispatched('celebrate');
 });
+
+test('the weight input starts empty and is required', function () {
+    $this->actingAs(User::factory()->create());
+
+    Livewire::test('pages.weight-tracking')
+        ->assertSet('weightInLbs', null)
+        ->call('logWeight')
+        ->assertHasErrors(['weightInLbs' => 'required']);
+});
+
+test('the required loss rate is measured from the latest weigh-in', function () {
+    $this->travelTo(now()->startOfDay()->setTime(12, 0));
+
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    BodyWeightGoal::create([
+        'user_id' => $user->id,
+        'start_weight' => 200,
+        'end_goal_weight' => 170,
+        'milestone_goal_weight' => 180,
+        'milestone_date' => now()->addDays(10)->toDateString(),
+    ]);
+
+    BodyWeight::factory()->for($user)->create(['weight_in_lbs' => 190]);
+
+    $goalStats = Livewire::test('pages.weight-tracking')->get('goalStats');
+
+    $daysRemaining = $goalStats['days_remaining'];
+
+    expect($goalStats['latest_weight'])->toEqual(190.0);
+    expect($goalStats['required_loss_per_day'])->toEqual(round((190 - 180) / $daysRemaining, 2));
+});
+
+test('the required loss rate falls back to the start weight without weigh-ins', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    BodyWeightGoal::create([
+        'user_id' => $user->id,
+        'start_weight' => 200,
+        'end_goal_weight' => 170,
+        'milestone_goal_weight' => 180,
+        'milestone_date' => now()->addDays(20)->toDateString(),
+    ]);
+
+    $goalStats = Livewire::test('pages.weight-tracking')->get('goalStats');
+
+    expect($goalStats['latest_weight'])->toEqual(200.0);
+    expect($goalStats['required_loss_per_day'])->toEqual(round((200 - 180) / $goalStats['days_remaining'], 2));
+});
+
+test('the required loss rate updates after logging a new weigh-in', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    BodyWeightGoal::create([
+        'user_id' => $user->id,
+        'start_weight' => 200,
+        'end_goal_weight' => 170,
+        'milestone_goal_weight' => 180,
+        'milestone_date' => now()->addDays(20)->toDateString(),
+    ]);
+
+    $component = Livewire::test('pages.weight-tracking');
+    expect($component->get('goalStats')['latest_weight'])->toEqual(200.0);
+
+    $component->set('weightInLbs', 195)->call('logWeight');
+
+    expect($component->get('goalStats')['latest_weight'])->toEqual(195.0);
+});

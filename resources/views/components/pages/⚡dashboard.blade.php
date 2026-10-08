@@ -71,19 +71,26 @@ new #[Title('Dashboard')] class extends Component {
     #[Computed]
     public function personalBests(): array
     {
-        $pbOrder = ['Overhead press', 'Bench press', 'Squat', 'Deadlift'];
+        // Display name => equipment name as stored against logged workouts.
+        $benchmarkLifts = [
+            'Overhead press' => '(Ben.) Overhead press',
+            'Bench press' => '(Ben.) Bench press',
+            'Squat' => '(Ben.) Squat',
+            'Deadlift' => '(Ben.) Deadlift',
+        ];
+
         $pbs = CompletedWorkout::where('user_id', auth()->id())
             ->where('is_deleted', false)
-            ->whereIn('equipment', $pbOrder)
+            ->whereIn('equipment', $benchmarkLifts)
             ->selectRaw('MAX(weight) AS lbs, equipment')
             ->groupBy('equipment')
             ->pluck('lbs', 'equipment')
             ->toArray();
 
-        return array_map(fn ($name) => [
+        return array_map(fn (string $name, string $equipment) => [
             'name' => $name,
-            'lbs' => $pbs[$name] ?? null,
-        ], $pbOrder);
+            'lbs' => $pbs[$equipment] ?? null,
+        ], array_keys($benchmarkLifts), $benchmarkLifts);
     }
 
     #[Computed]
