@@ -146,3 +146,42 @@ test('quick add quantity is clamped between 1 and 10', function () {
 
     expect($quantities)->toBe([10, 1]);
 });
+
+test('quick adding a food item celebrates', function () {
+    $this->actingAs(User::factory()->create());
+
+    $item = MealItem::factory()->create([
+        'name' => 'Celebration Oats',
+        'carbs' => 10,
+        'protein' => 10,
+        'fat' => 10,
+        'calories' => 170,
+        'is_active' => true,
+    ]);
+
+    Livewire::test('pages.nutrition')
+        ->call('quickAdd', $item->id)
+        ->assertDispatched('celebrate', message: 'Celebration Oats logged — nicely fuelled!');
+});
+
+test('adding a food item to the catalogue celebrates', function () {
+    $this->actingAs(User::factory()->create());
+
+    Livewire::test('pages.nutrition')
+        ->set('showAddItemForm', true)
+        ->set('newItemName', 'Celebration Item')
+        ->set('newItemProtein', 10)
+        ->call('addMealItem')
+        ->assertHasNoErrors()
+        ->assertSee('Food item added!')
+        ->assertDispatched('celebrate');
+});
+
+test('an empty food diary shows an encouraging empty state', function () {
+    $this->actingAs(User::factory()->create());
+
+    $this->get(route('nutrition'))
+        ->assertOk()
+        ->assertSee('Nothing logged today yet.')
+        ->assertSee('New food');
+});

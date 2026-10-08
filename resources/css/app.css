@@ -23,16 +23,48 @@
     --color-zinc-900: #171717;
     --color-zinc-950: #0a0a0a;
 
-    --color-accent: var(--color-neutral-800);
-    --color-accent-content: var(--color-neutral-800);
+    /* Brand accent — matches the emerald used on the landing page. */
+    --color-accent: var(--color-emerald-700);
+    --color-accent-content: var(--color-emerald-700);
     --color-accent-foreground: var(--color-white);
+
+    /* Macro colours used consistently across rings, bars and chips. */
+    --color-macro-protein: var(--color-sky-500);
+    --color-macro-carbs: var(--color-amber-500);
+    --color-macro-fat: var(--color-rose-500);
+    --color-macro-calories: var(--color-emerald-500);
+
+    --animate-fade-up: fade-up 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+    --animate-pop: pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    --animate-shimmer: shimmer 2.4s linear infinite;
+    --animate-float: float 5s ease-in-out infinite;
+
+    @keyframes fade-up {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes pop {
+        0% { opacity: 0; transform: scale(0.85); }
+        100% { opacity: 1; transform: scale(1); }
+    }
+
+    @keyframes shimmer {
+        from { background-position: -200% 0; }
+        to { background-position: 200% 0; }
+    }
+
+    @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-6px); }
+    }
 }
 
 @layer theme {
     .dark {
-        --color-accent: var(--color-white);
-        --color-accent-content: var(--color-white);
-        --color-accent-foreground: var(--color-neutral-800);
+        --color-accent: var(--color-emerald-500);
+        --color-accent-content: var(--color-emerald-400);
+        --color-accent-foreground: var(--color-zinc-950);
     }
 }
 
@@ -45,6 +77,64 @@
     ::file-selector-button {
         border-color: var(--color-gray-200, currentColor);
     }
+}
+
+@layer components {
+    /* Staggered entrance for page sections: add `af-stagger` to a parent. */
+    .af-stagger > * {
+        animation: var(--animate-fade-up);
+    }
+
+    .af-stagger > *:nth-child(2) { animation-delay: 60ms; }
+    .af-stagger > *:nth-child(3) { animation-delay: 120ms; }
+    .af-stagger > *:nth-child(4) { animation-delay: 180ms; }
+    .af-stagger > *:nth-child(5) { animation-delay: 240ms; }
+    .af-stagger > *:nth-child(n+6) { animation-delay: 300ms; }
+
+    /* Soft brand glow behind hero panels. */
+    .af-hero {
+        background:
+            radial-gradient(ellipse at 0% 0%, rgb(16 185 129 / 0.22) 0%, transparent 55%),
+            radial-gradient(ellipse at 100% 0%, rgb(6 182 212 / 0.18) 0%, transparent 50%),
+            radial-gradient(ellipse at 60% 120%, rgb(139 92 246 / 0.14) 0%, transparent 55%);
+    }
+
+    .af-gradient-text {
+        background: linear-gradient(135deg, var(--color-emerald-500), var(--color-cyan-500), var(--color-violet-400));
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+    }
+
+    .af-shine {
+        background-image: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 0.35) 50%, transparent 70%);
+        background-size: 200% 100%;
+        animation: var(--animate-shimmer);
+    }
+
+    /* Progress bar fill animates from zero on first paint. */
+    .af-bar {
+        transform-origin: left;
+        animation: af-grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+
+    .af-ring-value {
+        animation: af-ring-draw 1.1s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+        transition: stroke-dashoffset 0.6s ease;
+    }
+
+    @keyframes af-ring-draw {
+        from { stroke-dashoffset: var(--af-ring-from); }
+    }
+
+    @keyframes af-grow {
+        from { transform: scaleX(0); }
+        to { transform: scaleX(1); }
+    }
+}
+
+[x-cloak] {
+    display: none !important;
 }
 
 [data-flux-field]:not(ui-radio, ui-checkbox) {
@@ -61,6 +151,20 @@ select:focus[data-flux-control] {
     @apply outline-hidden ring-2 ring-accent ring-offset-2 ring-offset-accent-foreground;
 }
 
-/* \[:where(&)\]:size-4 {
-    @apply size-4;
-} */
+/* Leave room for the mobile bottom navigation bar. */
+@media (width < 64rem) {
+    [data-af-app] [data-flux-main] {
+        padding-bottom: calc(6rem + env(safe-area-inset-bottom));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

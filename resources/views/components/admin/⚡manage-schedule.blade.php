@@ -202,17 +202,12 @@ new #[Title('Manage Schedule')] class extends Component {
 };
 ?>
 
-    <div class="flex flex-col gap-6 p-6">
+    <div class="af-stagger flex flex-col gap-6">
 
-        <div>
-            <flux:heading size="xl">Manage Schedule</flux:heading>
-            <flux:text class="text-zinc-500">Edit the workout programme, sessions, day assignments, and exercises.</flux:text>
-        </div>
+        <x-ui.page-header icon="adjustments-horizontal" eyebrow="Admin" title="Manage Schedule" subtitle="Edit the workout programme, sessions, day assignments, and exercises." />
 
         @if($successMessage)
-            <flux:callout icon="check-circle" color="green">
-                <flux:callout.text>{{ $successMessage }}</flux:callout.text>
-            </flux:callout>
+            <x-ui.success-banner wire:key="admin-success-{{ md5($successMessage.$editingRotationId.$editingDayId.$editingWorkoutId) }}">{{ $successMessage }}</x-ui.success-banner>
         @endif
 
         <flux:tab.group>
@@ -223,8 +218,8 @@ new #[Title('Manage Schedule')] class extends Component {
             </flux:tabs>
 
             <flux:tab.panel name="rotations">
-                <flux:card class="mt-4">
-                    <flux:heading size="lg" class="mb-4">3-Week Rotation Programme</flux:heading>
+                <flux:card class="mt-4 !rounded-2xl">
+                    <flux:heading size="lg" level="2" class="mb-4">3-Week Rotation Programme</flux:heading>
                     <flux:table>
                         <flux:table.columns>
                             <flux:table.column>Week</flux:table.column>
@@ -238,11 +233,11 @@ new #[Title('Manage Schedule')] class extends Component {
                             @foreach($this->rotations as $rotation)
                                 <flux:table.row>
                                     @if($editingRotationId === $rotation->id)
-                                        <flux:table.cell><flux:input wire:model="rotationWeek" type="number" min="1" max="3" class="w-16" /></flux:table.cell>
-                                        <flux:table.cell><flux:input wire:model="rotationProgram" /></flux:table.cell>
-                                        <flux:table.cell><flux:input wire:model="rotationSets" /></flux:table.cell>
-                                        <flux:table.cell><flux:input wire:model="rotationReps" /></flux:table.cell>
-                                        <flux:table.cell><flux:input wire:model="rotationWeightPercent" type="number" class="w-20" /></flux:table.cell>
+                                        <flux:table.cell><flux:input wire:model="rotationWeek" aria-label="Week" type="number" min="1" max="3" class="w-16" /></flux:table.cell>
+                                        <flux:table.cell><flux:input wire:model="rotationProgram" aria-label="Programme" /></flux:table.cell>
+                                        <flux:table.cell><flux:input wire:model="rotationSets" aria-label="Sets" /></flux:table.cell>
+                                        <flux:table.cell><flux:input wire:model="rotationReps" aria-label="Reps" /></flux:table.cell>
+                                        <flux:table.cell><flux:input wire:model="rotationWeightPercent" aria-label="Weight percent" type="number" class="w-20" /></flux:table.cell>
                                         <flux:table.cell>
                                             <div class="flex gap-2">
                                                 <flux:button wire:click="saveRotation" size="sm" variant="primary">Save</flux:button>
@@ -256,7 +251,7 @@ new #[Title('Manage Schedule')] class extends Component {
                                         <flux:table.cell>{{ $rotation->reps }}</flux:table.cell>
                                         <flux:table.cell>{{ $rotation->weight_percent }}%</flux:table.cell>
                                         <flux:table.cell>
-                                            <flux:button wire:click="editRotation({{ $rotation->id }})" size="sm" icon="pencil" variant="ghost" />
+                                            <flux:button wire:click="editRotation({{ $rotation->id }})" size="sm" icon="pencil" variant="ghost" aria-label="Edit week {{ $rotation->week }}" />
                                         </flux:table.cell>
                                     @endif
                                 </flux:table.row>
@@ -267,8 +262,8 @@ new #[Title('Manage Schedule')] class extends Component {
             </flux:tab.panel>
 
             <flux:tab.panel name="days">
-                <flux:card class="mt-4">
-                    <flux:heading size="lg" class="mb-4">Day → Session Assignments</flux:heading>
+                <flux:card class="mt-4 !rounded-2xl">
+                    <flux:heading size="lg" level="2" class="mb-4">Day → Session Assignments</flux:heading>
                     <flux:table>
                         <flux:table.columns>
                             <flux:table.column>Day</flux:table.column>
@@ -280,10 +275,10 @@ new #[Title('Manage Schedule')] class extends Component {
                                 <flux:table.row>
                                     @if($editingDayId === $day->id)
                                         <flux:table.cell>
-                                            <flux:input wire:model="dayName" />
+                                            <flux:input wire:model="dayName" aria-label="Day" />
                                         </flux:table.cell>
                                         <flux:table.cell>
-                                            <flux:select wire:model="daySession">
+                                            <flux:select wire:model="daySession" aria-label="Session">
                                                 <flux:select.option value="">— Rest day —</flux:select.option>
                                                 @foreach($this->sessions as $session)
                                                     <flux:select.option :value="$session->session">{{ $session->session }}</flux:select.option>
@@ -300,13 +295,13 @@ new #[Title('Manage Schedule')] class extends Component {
                                         <flux:table.cell class="font-medium">{{ $day->day }}</flux:table.cell>
                                         <flux:table.cell>
                                             @if($day->session)
-                                                <flux:badge color="blue">{{ $day->session }}</flux:badge>
+                                                <flux:badge color="emerald">{{ $day->session }}</flux:badge>
                                             @else
                                                 <flux:badge color="zinc">Rest</flux:badge>
                                             @endif
                                         </flux:table.cell>
                                         <flux:table.cell>
-                                            <flux:button wire:click="editDay({{ $day->id }})" size="sm" icon="pencil" variant="ghost" />
+                                            <flux:button wire:click="editDay({{ $day->id }})" size="sm" icon="pencil" variant="ghost" aria-label="Edit {{ $day->day }}" />
                                         </flux:table.cell>
                                     @endif
                                 </flux:table.row>
@@ -317,8 +312,8 @@ new #[Title('Manage Schedule')] class extends Component {
             </flux:tab.panel>
 
             <flux:tab.panel name="exercises">
-                <flux:card class="mt-4">
-                    <flux:heading size="lg" class="mb-4">Exercises</flux:heading>
+                <flux:card class="mt-4 !rounded-2xl">
+                    <flux:heading size="lg" level="2" class="mb-4">Exercises</flux:heading>
                     <flux:table>
                         <flux:table.columns>
                             <flux:table.column>Session</flux:table.column>
@@ -331,10 +326,10 @@ new #[Title('Manage Schedule')] class extends Component {
                             @foreach($this->workouts as $workout)
                                 <flux:table.row>
                                     @if($editingWorkoutId === $workout->id)
-                                        <flux:table.cell><flux:input wire:model="workoutSession" /></flux:table.cell>
-                                        <flux:table.cell><flux:input wire:model="workoutExerciseNo" type="number" class="w-16" /></flux:table.cell>
-                                        <flux:table.cell><flux:input wire:model="workoutEquipment" /></flux:table.cell>
-                                        <flux:table.cell><flux:input wire:model="workoutWeight1rm" type="number" class="w-20" /></flux:table.cell>
+                                        <flux:table.cell><flux:input wire:model="workoutSession" aria-label="Session" /></flux:table.cell>
+                                        <flux:table.cell><flux:input wire:model="workoutExerciseNo" aria-label="Exercise number" type="number" class="w-16" /></flux:table.cell>
+                                        <flux:table.cell><flux:input wire:model="workoutEquipment" aria-label="Exercise" /></flux:table.cell>
+                                        <flux:table.cell><flux:input wire:model="workoutWeight1rm" aria-label="1RM percent" type="number" class="w-20" /></flux:table.cell>
                                         <flux:table.cell>
                                             <div class="flex gap-2">
                                                 <flux:button wire:click="saveWorkout" size="sm" variant="primary">Save</flux:button>
@@ -347,7 +342,7 @@ new #[Title('Manage Schedule')] class extends Component {
                                         <flux:table.cell class="font-medium">{{ $workout->equipment }}</flux:table.cell>
                                         <flux:table.cell>{{ $workout->weight_1rm ? $workout->weight_1rm . '%' : '—' }}</flux:table.cell>
                                         <flux:table.cell>
-                                            <flux:button wire:click="editWorkout({{ $workout->id }})" size="sm" icon="pencil" variant="ghost" />
+                                            <flux:button wire:click="editWorkout({{ $workout->id }})" size="sm" icon="pencil" variant="ghost" aria-label="Edit {{ $workout->equipment }}" />
                                         </flux:table.cell>
                                     @endif
                                 </flux:table.row>
