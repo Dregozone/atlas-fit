@@ -12,7 +12,7 @@ new #[Title('Weight Tracking')] class extends Component {
     private const MAINTAINING_THRESHOLD_LBS = 0.3;
 
     #[Validate('required|numeric|min:50|max:1000')]
-    public float $weightInLbs = 0;
+    public ?float $weightInLbs = null;
 
     public bool $showSuccess = false;
     public string $chartRange = '1m';
@@ -42,6 +42,7 @@ new #[Title('Weight Tracking')] class extends Component {
                 'current_weight' => 0,
                 'end_goal' => 0,
                 'target_weight' => 0,
+                'latest_weight' => 0,
                 'milestone_date' => null,
                 'days_remaining' => 0,
                 'required_loss_per_day' => 0,
@@ -50,14 +51,18 @@ new #[Title('Weight Tracking')] class extends Component {
 
         $daysRemaining = (int) Carbon::now()->diffInDays(Carbon::parse($goal->milestone_date), false);
 
+        // Measure the remaining distance from the most recent weigh-in, falling back to the start weight.
+        $latestWeight = (float) ($this->recentWeights->first()?->weight_in_lbs ?? $goal->start_weight);
+
         $requiredLossPerDay = $daysRemaining > 0
-            ? round(($goal->start_weight - $goal->milestone_goal_weight) / $daysRemaining, 2)
+            ? round(($latestWeight - $goal->milestone_goal_weight) / $daysRemaining, 2)
             : 0;
 
         return [
             'current_weight' => round($goal->start_weight, 1),
             'end_goal' => round($goal->end_goal_weight, 1),
             'target_weight' => round($goal->milestone_goal_weight, 1),
+            'latest_weight' => round($latestWeight, 1),
             'milestone_date' => $goal->milestone_date,
             'days_remaining' => $daysRemaining,
             'required_loss_per_day' => $requiredLossPerDay,
@@ -276,189 +281,228 @@ new #[Title('Weight Tracking')] class extends Component {
     {
         $this->validate();
 
+        $previousWeight = $this->recentWeights->first()?->weight_in_lbs;
+
         BodyWeight::create([
             'user_id' => auth()->id(),
             'weight_in_lbs' => $this->weightInLbs,
         ]);
 
+        $loggedWeight = (float) $this->weightInLbs;
         $this->reset('weightInLbs');
         $this->showSuccess = true;
-        unset($this->recentWeights, $this->recentLossPerDay);
+        unset($this->recentWeights, $this->recentLossPerDay, $this->goalStats);
         $this->resetChartComputedProperties();
+
+        $this->dispatch('celebrate', message: $this->weighInMessage($previousWeight, $loggedWeight));
+    }
+
+    /**
+     * Builds an encouraging message comparing the new weigh-in with the previous one.
+     */
+    private function weighInMessage(?float $previousWeight, float $loggedWeight): string
+    {
+        if ($previousWeight === null) {
+            return 'First weigh-in logged — the journey starts here!';
+        }
+
+        $difference = round($loggedWeight - $previousWeight, 1);
+
+        return match (true) {
+            $difference < 0 => 'Down '.abs($difference).' lbs since your last weigh-in!',
+            $difference > 0 => 'Weigh-in logged — consistency is what counts.',
+            default => 'Holding steady — weigh-in logged!',
+        };
     }
 };
 ?>
 
-    <div class="flex flex-col gap-6 p-6">
+<div class="af-stagger flex flex-col gap-6">
+    @php
+        $latestWeight = $this->recentWeights->first()?->weight_in_lbs;
+        $stats = $this->goalStats;
+        $journeyPercent = null;
 
-        <div class="flex items-center justify-between">
-            <div>
-                <flux:heading size="xl">Weight Tracking</flux:heading>
-                <flux:text class="text-zinc-500">Log your weight and monitor progress towards your goals.</flux:text>
-            </div>
+        if ($this->bodyWeightGoal && $latestWeight !== null && $stats['current_weight'] != $stats['end_goal']) {
+            $journeyPercent = max(0, min(100, (($stats['current_weight'] - $latestWeight) / ($stats['current_weight'] - $stats['end_goal'])) * 100));
+        }
+    @endphp
+
+    <x-ui.page-header icon="scale" eyebrow="Progress" title="Weight Tracking" subtitle="Log your weight and monitor progress towards your goals.">
+        <x-slot:actions>
             <flux:button :href="route('weight.goals')" wire:navigate variant="ghost" icon="pencil-square">
                 Edit Goals
             </flux:button>
-        </div>
+        </x-slot:actions>
+    </x-ui.page-header>
 
-        {{-- Goal Summary --}}
-        @if($this->bodyWeightGoal)
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <flux:card class="text-center">
-                    <flux:heading size="xl">{{ $this->goalStats['current_weight'] }}</flux:heading>
-                    <flux:text class="text-zinc-500">Start weight (lbs)</flux:text>
-                </flux:card>
-                <flux:card class="text-center">
-                    <flux:heading size="xl">{{ $this->goalStats['target_weight'] }}</flux:heading>
-                    <flux:text class="text-zinc-500">Milestone target (lbs)</flux:text>
-                </flux:card>
-                <flux:card class="text-center">
-                    <flux:heading size="xl">{{ $this->goalStats['end_goal'] }}</flux:heading>
-                    <flux:text class="text-zinc-500">End goal (lbs)</flux:text>
-                </flux:card>
-                <flux:card class="text-center">
-                    <flux:heading size="xl">{{ $this->goalStats['days_remaining'] }}</flux:heading>
-                    <flux:text class="text-zinc-500">Days to milestone</flux:text>
-                </flux:card>
-            </div>
+    <div class="grid items-start gap-6 lg:grid-cols-3">
 
-            <div class="grid gap-4 sm:grid-cols-2">
-                <flux:card class="flex items-center gap-4">
-                    <flux:icon.arrow-trending-down class="size-8 text-blue-500" />
-                    <div>
-                        <flux:heading size="lg">{{ $this->goalStats['required_loss_per_day'] > 0 ? $this->goalStats['required_loss_per_day'] : '—' }} lbs/day</flux:heading>
-                        <flux:text class="text-zinc-500">Required loss rate to hit milestone by {{ $this->goalStats['milestone_date'] }}</flux:text>
-                    </div>
-                </flux:card>
-                <flux:card class="flex items-center gap-4">
-                    <flux:icon.chart-bar class="size-8 {{ $this->recentLossPerDay < 0 ? 'text-green-500' : 'text-zinc-400' }}" />
-                    <div>
-                        <flux:heading size="lg">{{ $this->recentLossPerDay }} lbs/entry</flux:heading>
-                        <flux:text class="text-zinc-500">Average recent change (last 10 entries)</flux:text>
-                    </div>
-                </flux:card>
-            </div>
-        @else
-            <flux:callout icon="information-circle">
-                <flux:callout.text>
-                    No goals set yet. <flux:link href="{{ route('weight.goals') }}" wire:navigate>Set your body weight goals</flux:link> to see progress tracking.
-                </flux:callout.text>
-            </flux:callout>
-        @endif
+        {{-- Log Weight Form --}}
+        <flux:card class="!rounded-2xl">
+            <flux:heading size="lg" level="2" class="mb-1">Log Today's Weight</flux:heading>
+            <flux:text class="mb-5">Weigh in at the same time each day for the most accurate trend.</flux:text>
 
-        <flux:card class="space-y-4">
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                    <flux:heading size="lg">Weight Trend</flux:heading>
-                    <flux:text class="text-zinc-500">
-                        {{ $this->chartRangeLabel }} · {{ $this->chartRangeResolution }}
-                    </flux:text>
+            @if($showSuccess)
+                <x-ui.success-banner class="mb-4" wire:key="weight-success-{{ $this->recentWeights->first()?->id }}">Weight recorded!</x-ui.success-banner>
+            @endif
+
+            <form wire:submit="logWeight" class="space-y-4">
+                <flux:field>
+                    <flux:label>Weight (lbs)</flux:label>
+                    <flux:input wire:model="weightInLbs" type="number" min="50" max="1000" step="0.1" placeholder="e.g. 185.5" inputmode="decimal" class="[&_input]:!h-14 [&_input]:!text-2xl [&_input]:font-bold [&_input]:tabular-nums" />
+                    <flux:error name="weightInLbs" />
+                </flux:field>
+                <flux:button type="submit" variant="primary" icon="check" class="w-full">Record Weight</flux:button>
+            </form>
+
+            @if($latestWeight !== null)
+                <div class="mt-5 flex items-center justify-between rounded-xl bg-zinc-50 px-4 py-3 text-sm dark:bg-white/5">
+                    <span class="text-zinc-600 dark:text-zinc-400">Last weigh-in</span>
+                    <span class="font-semibold tabular-nums">{{ round($latestWeight, 1) }} lbs · {{ $this->recentWeights->first()->created_at->diffForHumans() }}</span>
                 </div>
-                <flux:badge color="{{ $this->chartTrend['color'] }}">
-                    {{ $this->chartTrend['direction'] }}
-                    @if($this->chartTrend['change'] !== 0)
-                        ({{ $this->chartTrend['change'] > 0 ? '+' : '' }}{{ $this->chartTrend['change'] }} lbs)
-                    @endif
-                </flux:badge>
-            </div>
-
-            <div class="flex flex-wrap gap-2" role="group" aria-label="Chart range">
-                @foreach($this->chartRangeButtons as $button)
-                    <flux:button size="sm" variant="{{ $chartRange === $button['value'] ? 'primary' : 'ghost' }}" wire:click="setChartRange('{{ $button['value'] }}')">
-                        {{ $button['button_label'] }}
-                    </flux:button>
-                @endforeach
-            </div>
-
-            @if(empty($this->chartData))
-                <flux:text class="text-zinc-500">No chart data available for this period yet.</flux:text>
-            @else
-                <flux:chart :value="$this->chartData">
-                    <flux:chart.viewport class="aspect-[3/1]">
-                        <flux:chart.svg>
-                            <flux:chart.line field="weight" class="text-blue-500 dark:text-blue-400" curve="none" />
-                            <flux:chart.area field="weight" class="text-blue-200/40 dark:text-blue-400/20" curve="none" />
-                            <flux:chart.axis axis="x" field="label">
-                                <flux:chart.axis.tick />
-                                <flux:chart.axis.line />
-                            </flux:chart.axis>
-                            <flux:chart.axis axis="y">
-                                <flux:chart.axis.grid />
-                                <flux:chart.axis.tick />
-                            </flux:chart.axis>
-                            <flux:chart.cursor />
-                        </flux:chart.svg>
-                        <flux:chart.tooltip>
-                            <flux:chart.tooltip.heading field="date" />
-                            <flux:chart.tooltip.value field="weight" label="Weight (lbs)" />
-                        </flux:chart.tooltip>
-                    </flux:chart.viewport>
-                </flux:chart>
             @endif
         </flux:card>
 
-        <div class="grid gap-6 lg:grid-cols-2">
+        {{-- Goal journey --}}
+        <div class="flex flex-col gap-6 lg:col-span-2">
+            @if($this->bodyWeightGoal)
+                <flux:card class="!rounded-2xl">
+                    <div class="flex flex-col gap-6 sm:flex-row sm:items-center">
+                        <x-ui.ring :percent="$journeyPercent ?? 0" :size="128" :stroke="11" color="text-emerald-500" label="Progress towards end goal">
+                            <span class="text-2xl font-bold tabular-nums">{{ $journeyPercent !== null ? round($journeyPercent) . '%' : '—' }}</span>
+                            <span class="text-[11px] text-zinc-600 dark:text-zinc-400">to end goal</span>
+                        </x-ui.ring>
+                        <div class="min-w-0 flex-1">
+                            <flux:heading size="lg" level="2">Your journey</flux:heading>
+                            <flux:text class="mb-4">
+                                @if($journeyPercent !== null && $journeyPercent >= 100)
+                                    Goal smashed! Time to set a new one.
+                                @elseif($journeyPercent !== null && $journeyPercent >= 50)
+                                    Over halfway there — stay consistent.
+                                @else
+                                    Every weigh-in moves you closer.
+                                @endif
+                            </flux:text>
+                            <dl class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                @foreach([
+                                    ['Start weight (lbs)', $stats['current_weight']],
+                                    ['Milestone target (lbs)', $stats['target_weight']],
+                                    ['End goal (lbs)', $stats['end_goal']],
+                                    ['Days to milestone', $stats['days_remaining']],
+                                ] as [$label, $value])
+                                    <div class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5">
+                                        <dd class="text-xl font-bold tabular-nums">{{ $value }}</dd>
+                                        <dt class="text-xs text-zinc-600 dark:text-zinc-400">{{ $label }}</dt>
+                                    </div>
+                                @endforeach
+                            </dl>
+                        </div>
+                    </div>
+                </flux:card>
 
-            {{-- Log Weight Form --}}
-            <flux:card>
-                <flux:heading size="lg" class="mb-4">Log Today's Weight</flux:heading>
+                <div class="grid gap-4 sm:grid-cols-2">
+                    <x-ui.stat icon="flag" tone="sky"
+                        :value="($stats['required_loss_per_day'] > 0 ? $stats['required_loss_per_day'] : '—').' lbs/day'"
+                        :label="'Required loss rate from your latest weigh-in to hit milestone by '.\Illuminate\Support\Carbon::parse($stats['milestone_date'])->format('j M Y')" />
+                    <x-ui.stat icon="arrow-trending-down" :tone="$this->recentLossPerDay < 0 ? 'emerald' : 'amber'"
+                        :value="$this->recentLossPerDay.' lbs/entry'"
+                        label="Average recent change (last 10 entries)" />
+                </div>
+            @else
+                <x-ui.empty-state icon="flag" title="No goals set yet." description="Set your body weight goals to unlock journey tracking, milestones and countdowns.">
+                    <flux:button :href="route('weight.goals')" wire:navigate variant="primary" icon="flag" size="sm">Set your body weight goals</flux:button>
+                </x-ui.empty-state>
+            @endif
+        </div>
+    </div>
 
-                @if($showSuccess)
-                    <flux:callout icon="check-circle" color="green" class="mb-4">
-                        <flux:callout.text>Weight recorded!</flux:callout.text>
-                    </flux:callout>
+    {{-- Trend chart --}}
+    <flux:card class="!rounded-2xl space-y-4">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+                <flux:heading size="lg" level="2">Weight Trend</flux:heading>
+                <flux:text>
+                    {{ $this->chartRangeLabel }} · {{ $this->chartRangeResolution }}
+                </flux:text>
+            </div>
+            <flux:badge class="self-start" color="{{ $this->chartTrend['color'] }}" icon="{{ $this->chartTrend['direction'] === 'Gaining' ? 'arrow-trending-up' : ($this->chartTrend['direction'] === 'Losing' ? 'arrow-trending-down' : 'minus') }}">
+                {{ $this->chartTrend['direction'] }}
+                @if($this->chartTrend['change'] !== 0)
+                    ({{ $this->chartTrend['change'] > 0 ? '+' : '' }}{{ $this->chartTrend['change'] }} lbs)
                 @endif
-
-                <form wire:submit="logWeight" class="space-y-4">
-                    <flux:field>
-                        <flux:label>Weight (lbs)</flux:label>
-                        <flux:input wire:model="weightInLbs" type="number" min="50" max="1000" step="0.1" placeholder="e.g. 185.5" />
-                        <flux:error name="weightInLbs" />
-                    </flux:field>
-                    <flux:button type="submit" variant="primary" class="w-full">Record Weight</flux:button>
-                </form>
-            </flux:card>
-
-            {{-- History --}}
-            <flux:card>
-                <flux:heading size="lg" class="mb-4">Recent History (Last 10)</flux:heading>
-
-                @if($this->recentWeights->isEmpty())
-                    <flux:text class="text-zinc-500">No weight entries yet. Log your first one!</flux:text>
-                @else
-                    <flux:table>
-                        <flux:table.columns>
-                            <flux:table.column>#</flux:table.column>
-                            <flux:table.column>Weight (lbs)</flux:table.column>
-                            <flux:table.column>Date</flux:table.column>
-                            <flux:table.column>Change</flux:table.column>
-                        </flux:table.columns>
-                        <flux:table.rows>
-                            @foreach($this->recentWeights as $i => $entry)
-                                @php
-                                    $prev = $this->recentWeights[$i + 1] ?? null;
-                                    $change = $prev ? round($entry->weight_in_lbs - $prev->weight_in_lbs, 1) : null;
-                                @endphp
-                                <flux:table.row>
-                                    <flux:table.cell class="text-zinc-400">{{ $i + 1 }}</flux:table.cell>
-                                    <flux:table.cell class="font-medium">{{ round($entry->weight_in_lbs, 1) }}</flux:table.cell>
-                                    <flux:table.cell class="text-sm text-zinc-400">{{ $entry->created_at->format('d M Y') }}</flux:table.cell>
-                                    <flux:table.cell>
-                                        @if($change !== null)
-                                            <flux:badge color="{{ $change < 0 ? 'green' : ($change > 0 ? 'red' : 'zinc') }}">
-                                                {{ $change > 0 ? '+' : '' }}{{ $change }}
-                                            </flux:badge>
-                                        @else
-                                            <flux:text class="text-zinc-400">—</flux:text>
-                                        @endif
-                                    </flux:table.cell>
-                                </flux:table.row>
-                            @endforeach
-                        </flux:table.rows>
-                    </flux:table>
-                @endif
-            </flux:card>
-
+            </flux:badge>
         </div>
 
-    </div>
+        <div class="inline-flex flex-wrap gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-white/5" role="group" aria-label="Chart range">
+            @foreach($this->chartRangeButtons as $button)
+                <button type="button" wire:click="setChartRange('{{ $button['value'] }}')"
+                    aria-pressed="{{ $chartRange === $button['value'] ? 'true' : 'false' }}"
+                    class="rounded-lg px-3 py-1.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-emerald-500 {{ $chartRange === $button['value'] ? 'bg-white text-zinc-900 shadow-sm dark:bg-white/15 dark:text-white' : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white' }}"
+                >
+                    {{ $button['button_label'] }}
+                </button>
+            @endforeach
+        </div>
+
+        @if(empty($this->chartData))
+            <x-ui.empty-state icon="chart-bar" title="No chart data available for this period yet." description="Log a few weigh-ins and your trend line will appear here." />
+        @else
+            <flux:chart :value="$this->chartData" wire:key="weight-chart-{{ $chartRange }}">
+                <flux:chart.viewport class="aspect-[2/1] sm:aspect-[3/1]">
+                    <flux:chart.svg>
+                        <flux:chart.line field="weight" class="text-emerald-500 dark:text-emerald-400" curve="none" />
+                        <flux:chart.area field="weight" class="text-emerald-200/50 dark:text-emerald-400/15" curve="none" />
+                        <flux:chart.point field="weight" class="text-emerald-500 dark:text-emerald-400" r="3" />
+                        <flux:chart.axis axis="x" field="label" tick-count="5">
+                            <flux:chart.axis.tick />
+                            <flux:chart.axis.line />
+                        </flux:chart.axis>
+                        <flux:chart.axis axis="y" tick-start="min" tick-count="4">
+                            <flux:chart.axis.grid />
+                            <flux:chart.axis.tick />
+                        </flux:chart.axis>
+                        <flux:chart.cursor />
+                    </flux:chart.svg>
+                    <flux:chart.tooltip>
+                        <flux:chart.tooltip.heading field="date" />
+                        <flux:chart.tooltip.value field="weight" label="Weight (lbs)" />
+                    </flux:chart.tooltip>
+                </flux:chart.viewport>
+            </flux:chart>
+        @endif
+    </flux:card>
+
+    {{-- History --}}
+    <flux:card class="!rounded-2xl">
+        <flux:heading size="lg" level="2" class="mb-4">Recent History (Last 10)</flux:heading>
+
+        @if($this->recentWeights->isEmpty())
+            <x-ui.empty-state icon="scale" title="No weight entries yet. Log your first one!" />
+        @else
+            <ul class="grid gap-2 sm:grid-cols-2">
+                @foreach($this->recentWeights as $i => $entry)
+                    @php
+                        $prev = $this->recentWeights[$i + 1] ?? null;
+                        $change = $prev ? round($entry->weight_in_lbs - $prev->weight_in_lbs, 1) : null;
+                    @endphp
+                    <li wire:key="weight-{{ $entry->id }}" class="flex items-center gap-3 rounded-xl border border-zinc-200 p-3 dark:border-white/10">
+                        <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100 text-xs font-semibold text-zinc-600 dark:bg-white/10 dark:text-zinc-300" aria-hidden="true">{{ $i + 1 }}</span>
+                        <div class="min-w-0 flex-1">
+                            <p class="font-semibold tabular-nums">{{ round($entry->weight_in_lbs, 1) }} lbs</p>
+                            <p class="text-xs text-zinc-600 dark:text-zinc-400">{{ $entry->created_at->format('d M Y') }}</p>
+                        </div>
+                        @if($change !== null)
+                            <flux:badge size="sm" color="{{ $change < 0 ? 'green' : ($change > 0 ? 'red' : 'zinc') }}">
+                                {{ $change > 0 ? '+' : '' }}{{ $change }}
+                            </flux:badge>
+                        @else
+                            <span class="text-zinc-500 dark:text-zinc-400" aria-label="No previous entry">—</span>
+                        @endif
+                    </li>
+                @endforeach
+            </ul>
+        @endif
+    </flux:card>
+
+</div>

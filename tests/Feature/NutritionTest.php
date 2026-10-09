@@ -146,3 +146,88 @@ test('quick add quantity is clamped between 1 and 10', function () {
 
     expect($quantities)->toBe([10, 1]);
 });
+
+test('quick adding a food item celebrates', function () {
+    $this->actingAs(User::factory()->create());
+
+    $item = MealItem::factory()->create([
+        'name' => 'Celebration Oats',
+        'carbs' => 10,
+        'protein' => 10,
+        'fat' => 10,
+        'calories' => 170,
+        'is_active' => true,
+    ]);
+
+    Livewire::test('pages.nutrition')
+        ->call('quickAdd', $item->id)
+        ->assertDispatched('celebrate', message: 'Celebration Oats logged — nicely fuelled!');
+});
+
+test('adding a food item to the catalogue celebrates', function () {
+    $this->actingAs(User::factory()->create());
+
+    Livewire::test('pages.nutrition')
+        ->set('showAddItemForm', true)
+        ->set('newItemName', 'Celebration Item')
+        ->set('newItemProtein', 10)
+        ->call('addMealItem')
+        ->assertHasNoErrors()
+        ->assertSee('Food item added!')
+        ->assertDispatched('celebrate');
+});
+
+test('an empty food diary shows an encouraging empty state', function () {
+    $this->actingAs(User::factory()->create());
+
+    $this->get(route('nutrition'))
+        ->assertOk()
+        ->assertSee('Nothing logged today yet.')
+        ->assertSee('New food');
+});
+
+test('a food can be removed from today\'s diary', function () {
+    $user = User::factory()->create();
+    $otherUser = User::factory()->create();
+    $this->actingAs($user);
+
+    $item = MealItem::factory()->create([
+        'name' => 'Removable Porridge',
+        'carbs' => 10,
+        'protein' => 10,
+        'fat' => 10,
+        'calories' => 170,
+        'is_active' => true,
+    ]);
+    $keptItem = MealItem::factory()->create([
+        'name' => 'Kept Banana',
+        'carbs' => 27,
+        'protein' => 1,
+        'fat' => 0,
+        'calories' => 112,
+        'is_active' => true,
+    ]);
+
+    Consumed::create(['user_id' => $user->id, 'meal_item_id' => $item->id, 'quantity' => 2]);
+    Consumed::create(['user_id' => $user->id, 'meal_item_id' => $item->id, 'quantity' => 1]);
+    Consumed::create(['user_id' => $user->id, 'meal_item_id' => $keptItem->id, 'quantity' => 1]);
+    Consumed::create(['user_id' => $otherUser->id, 'meal_item_id' => $item->id, 'quantity' => 1]);
+    $yesterday = Consumed::create(['user_id' => $user->id, 'meal_item_id' => $item->id, 'quantity' => 1]);
+    $yesterday->forceFill(['created_at' => now()->subDay()])->save();
+
+    Livewire::test('pages.nutrition')
+        ->assertSee('Removable Porridge')
+        ->call('removeConsumed', $item->id)
+        ->assertSee('Kept Banana');
+
+    $todaysEntries = Consumed::query()
+        ->where('user_id', $user->id)
+        ->where('meal_item_id', $item->id)
+        ->whereDate('created_at', today())
+        ->count();
+
+    expect($todaysEntries)->toBe(0);
+    expect(Consumed::where('user_id', $user->id)->where('meal_item_id', $keptItem->id)->exists())->toBeTrue();
+    expect(Consumed::where('user_id', $otherUser->id)->where('meal_item_id', $item->id)->exists())->toBeTrue();
+    expect($yesterday->fresh())->not->toBeNull();
+});

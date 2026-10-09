@@ -11,7 +11,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::livewire('nutrition', 'pages.nutrition')->name('nutrition');
     Route::livewire('weight', 'pages.weight-tracking')->name('weight');
     Route::livewire('weight/goals', 'pages.body-weight-goals')->name('weight.goals');
-    Route::livewire('admin/schedule', 'admin.manage-schedule')->name('admin.schedule');
+    Route::livewire('admin/schedule', 'admin.manage-schedule')
+        ->can('manage-schedule')
+        ->name('admin.schedule');
 
     Route::livewire('settings/api', 'pages.settings.api')->name('settings.api');
 });
