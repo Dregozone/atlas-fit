@@ -18,14 +18,18 @@ test('returns 401 when credentials are invalid', function () {
 });
 
 test('returns no-store cache control header', function () {
-    // Today is Wednesday (seeded with session 'b' — Arms + Back)
+    // Travel to Wednesday 2026-07-08 — seeded with session 'b' (Arms + Back)
+    $this->travelTo(Carbon::parse('2026-07-08'));
+
     $response = $this->getJson('/api/test-identifier/test-token/workouts')->assertOk();
 
     expect($response->headers->get('Cache-Control'))->toContain('no-store');
 });
 
 test('returns workout data for today when a session is scheduled', function () {
-    // Today is Wednesday, session 'b' → Arms (5) + Back (5) = 10 exercises
+    // Travel to Wednesday 2026-07-08, session 'b' → Arms (5) + Back (5) = 10 exercises
+    $this->travelTo(Carbon::parse('2026-07-08'));
+
     $response = $this->getJson('/api/test-identifier/test-token/workouts')
         ->assertOk()
         ->assertJsonStructure([
