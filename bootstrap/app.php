@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\CaptureReferrer;
 use App\Http\Middleware\TrackUserActivity;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -13,7 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->appendToGroup('web', TrackUserActivity::class);
+        $middleware->appendToGroup('web', [TrackUserActivity::class, CaptureReferrer::class]);
         $middleware->appendToGroup('api', TrackUserActivity::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

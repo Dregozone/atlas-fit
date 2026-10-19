@@ -115,4 +115,16 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Admin Notification Address
+    |--------------------------------------------------------------------------
+    |
+    | New sign-ups are reported to this address. Leave it empty to turn the
+    | sign-up notification emails off.
+    |
+    */
+
+    'admin_notify_address' => env('ADMIN_NOTIFY_EMAIL'),
+
 ];
