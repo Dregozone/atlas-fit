@@ -3,12 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Day;
 use App\Models\Rotation;
 use App\Models\User;
 use App\Models\Workout;
-use App\Models\WorkoutSession;
+use App\Services\UserSchedule;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Collection;
 
 class UpcomingWorkouts extends Controller
 {
@@ -45,24 +45,16 @@ class UpcomingWorkouts extends Controller
         $rotationWeek = ($weekNumber % 3) + 1;
 
         $rotation = Rotation::where('week', $rotationWeek)->first();
-        $day = Day::where('day', $dayName)->first();
+        $schedule = new UserSchedule($user);
 
-        if (! $day || empty($day->session)) {
+        if (! $schedule->sessionKeyFor($dayName)) {
             return response()->json([
                 'message' => 'No workout scheduled for today',
-                'nextWorkout' => $this->resolveNextWorkout($date),
+                'nextWorkout' => $this->resolveNextWorkout($schedule, $date),
             ], 200)->header('Cache-Control', 'no-store');
         }
 
-        $session = WorkoutSession::where('session', $day->session)->first();
-        $primaryExercises = $session
-            ? Workout::where('session', $session->primary_muscle_group)->orderBy('exercise_no')->get()
-            : collect();
-        $secondaryExercises = $session
-            ? Workout::where('session', $session->secondary_muscle_group)->orderBy('exercise_no')->get()
-            : collect();
-
-        $upcomingWorkouts = $primaryExercises->concat($secondaryExercises)->values();
+        $upcomingWorkouts = $this->workoutsFor($schedule, $dayName);
 
         return response()->json([
             'rotation' => $rotation,
@@ -80,34 +72,43 @@ class UpcomingWorkouts extends Controller
      *
      * @return array<string, mixed>|null
      */
-    private function resolveNextWorkout(CarbonInterface $from): ?array
+    private function resolveNextWorkout(UserSchedule $schedule, CarbonInterface $from): ?array
     {
         for ($i = 1; $i <= 7; $i++) {
             $nextDate = $from->copy()->addDays($i);
-            $nextDay = Day::where('day', $nextDate->format('l'))->first();
 
-            if (! $nextDay || empty($nextDay->session)) {
+            if (! $schedule->sessionKeyFor($nextDate->format('l'))) {
                 continue;
             }
 
             $nextRotationWeek = ((int) $nextDate->format('W') % 3) + 1;
-            $nextSession = WorkoutSession::where('session', $nextDay->session)->first();
-
-            $primary = $nextSession
-                ? Workout::where('session', $nextSession->primary_muscle_group)->orderBy('exercise_no')->get()
-                : collect();
-            $secondary = $nextSession
-                ? Workout::where('session', $nextSession->secondary_muscle_group)->orderBy('exercise_no')->get()
-                : collect();
 
             return [
                 'date' => $nextDate->format('Y-m-d'),
                 'day' => $nextDate->format('l'),
                 'rotation' => Rotation::where('week', $nextRotationWeek)->first(),
-                'upcomingWorkouts' => $primary->concat($secondary)->values(),
+                'upcomingWorkouts' => $this->workoutsFor($schedule, $nextDate->format('l')),
             ];
         }
 
         return null;
+    }
+
+    /**
+     * The exercises the user has switched on for their session on the given weekday.
+     *
+     * @return Collection<int, Workout>
+     */
+    private function workoutsFor(UserSchedule $schedule, string $dayName): Collection
+    {
+        $session = $schedule->sessionFor($dayName);
+
+        if (! $session) {
+            return collect();
+        }
+
+        return $schedule->includedWorkoutsFor($session->primary_muscle_group)
+            ->concat($schedule->includedWorkoutsFor($session->secondary_muscle_group))
+            ->values();
     }
 }

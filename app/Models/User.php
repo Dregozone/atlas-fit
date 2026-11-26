@@ -7,6 +7,8 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Str;
@@ -64,5 +66,21 @@ class User extends Authenticatable
     public function bodyWeightGoal()
     {
         return $this->hasOne(BodyWeightGoal::class);
+    }
+
+    /**
+     * Programme exercises the user has switched off (for example, ones needing gym equipment they don't have).
+     */
+    public function excludedWorkouts(): BelongsToMany
+    {
+        return $this->belongsToMany(Workout::class, 'excluded_workouts')->withTimestamps();
+    }
+
+    /**
+     * Weekdays where the user trains a different session, or rests, instead of following the programme.
+     */
+    public function scheduleDays(): HasMany
+    {
+        return $this->hasMany(UserDay::class);
     }
 }

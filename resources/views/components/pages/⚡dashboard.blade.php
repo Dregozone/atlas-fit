@@ -1,13 +1,11 @@
 <?php
 
-use App\Models\Day;
 use App\Models\Rotation;
-use App\Models\WorkoutSession;
-use App\Models\Workout;
 use App\Models\Consumed;
 use App\Models\Achievement;
 use App\Models\CompletedWorkout;
 use App\Services\MacroCalculator;
+use App\Services\UserSchedule;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
@@ -37,9 +35,9 @@ new #[Title('Dashboard')] class extends Component {
         $rotationWeek = ($weekNumber % 3) + 1;
 
         $rotation = Rotation::where('week', $rotationWeek)->first();
-        $day = Day::where('day', $dayName)->first();
+        $schedule = new UserSchedule(auth()->user());
 
-        if (! $day || empty($day->session)) {
+        if (! $schedule->sessionKeyFor($dayName)) {
             return [
                 'day' => $dayName,
                 'rotation' => $rotation,
@@ -50,13 +48,9 @@ new #[Title('Dashboard')] class extends Component {
             ];
         }
 
-        $session = WorkoutSession::where('session', $day->session)->first();
-        $primaryExercises = $session
-            ? Workout::where('session', $session->primary_muscle_group)->orderBy('exercise_no')->get()
-            : collect();
-        $secondaryExercises = $session
-            ? Workout::where('session', $session->secondary_muscle_group)->orderBy('exercise_no')->get()
-            : collect();
+        $session = $schedule->sessionFor($dayName);
+        $primaryExercises = $session ? $schedule->includedWorkoutsFor($session->primary_muscle_group) : collect();
+        $secondaryExercises = $session ? $schedule->includedWorkoutsFor($session->secondary_muscle_group) : collect();
 
         return [
             'day' => $dayName,
