@@ -3,25 +3,60 @@
 use App\Models\BodyWeight;
 use App\Models\BodyWeightGoal;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
-use Livewire\Attributes\Validate;
 use Livewire\Component;
 
 new #[Title('Weight Tracking')] class extends Component {
     private const MAINTAINING_THRESHOLD_LBS = 0.3;
 
-    #[Validate('required|numeric|min:50|max:1000')]
+    /** Absolute limits that catch a misplaced decimal point (e.g. 18.5 or 1855 for 185.5). */
+    public const MIN_WEIGHT_LBS = 50;
+
+    public const MAX_WEIGHT_LBS = 600;
+
+    /** A change from the last weigh-in above this percentage asks the user to confirm. */
+    public const CONFIRM_CHANGE_PERCENT = 5;
+
+    /** A change from a recent weigh-in above this percentage is blocked outright. */
+    public const BLOCK_CHANGE_PERCENT = 20;
+
+    /** Weigh-ins older than this are too old to block against: only a confirmation is asked. */
+    private const BLOCK_LOOKBACK_DAYS = 90;
+
+    /** Above this many weigh-in days the chart switches from daily to weekly points. */
+    private const MAX_DAILY_CHART_POINTS = 366;
+
+    /** Markers are drawn on each point only while the chart is not too dense. */
+    private const MAX_CHART_MARKERS = 90;
+
     public ?float $weightInLbs = null;
 
     public bool $showSuccess = false;
     public string $chartRange = '1m';
+
+    public bool $showWeightConfirmation = false;
+    public string $weightConfirmationMessage = '';
+
+    public bool $showEditWeight = false;
+    public ?int $editingWeightId = null;
+    public ?float $editWeightInLbs = null;
+
+    public bool $showDeleteWeight = false;
+    public ?int $deletingWeightId = null;
+
+    public function mount(): void
+    {
+        $this->ensureChartRangeIsAvailable();
+    }
 
     #[Computed]
     public function recentWeights()
     {
         return BodyWeight::where('user_id', auth()->id())
             ->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->take(10)
             ->get();
     }
@@ -89,58 +124,60 @@ new #[Title('Weight Tracking')] class extends Component {
         return round($totalDiff / $count, 2);
     }
 
+    /**
+     * Every weigh-in day for the user, oldest first, with the day's average weight.
+     *
+     * @return Collection<int, array{date: string, weight: float, entries: int}>
+     */
     #[Computed]
-    public function chartData(): array
+    public function dailyWeights(): Collection
     {
-        $range = $this->chartRangeConfig;
-
-        $dailyAverages = BodyWeight::query()
+        return BodyWeight::query()
             ->where('user_id', auth()->id())
-            ->when($range['start'], fn ($query) => $query->where('created_at', '>=', $range['start']))
             ->selectRaw('DATE(created_at) as entry_date')
             ->selectRaw('AVG(weight_in_lbs) as average_weight')
+            ->selectRaw('COUNT(*) as entry_count')
             ->groupBy('entry_date')
             ->orderBy('entry_date')
             ->get()
             ->map(fn (BodyWeight $entry) => [
-                'date' => $entry->entry_date,
+                'date' => Carbon::parse($entry->entry_date)->toDateString(),
                 'weight' => round((float) $entry->average_weight, 1),
+                'entries' => (int) $entry->entry_count,
             ])
-            ->values()
-            ->toArray();
+            ->values();
+    }
 
-        $chunkDays = $range['chunk_days'];
+    /**
+     * The points plotted for the selected range: one per weigh-in day, or one per week when
+     * there are too many days to draw individually.
+     *
+     * @return array<int, array{date: string, label: string, weight: float}>
+     */
+    #[Computed]
+    public function chartData(): array
+    {
+        $days = $this->daysInRange($this->chartRangeConfig['start']);
 
-        if ($chunkDays <= 1) {
-            return collect($dailyAverages)
-                ->map(function (array $entry) {
-                    $date = Carbon::parse($entry['date']);
-
-                    return [
-                        'label' => $date->format('j M'),
-                        'weight' => $entry['weight'],
-                        'date' => $date->format('j M Y'),
-                    ];
-                })
+        if ($days->count() <= self::MAX_DAILY_CHART_POINTS) {
+            return $days
+                ->map(fn (array $day) => [
+                    'date' => $day['date'],
+                    'label' => Carbon::parse($day['date'])->format('D j M Y')
+                        .($day['entries'] > 1 ? ' (average of '.$day['entries'].' weigh-ins)' : ''),
+                    'weight' => $day['weight'],
+                ])
+                ->values()
                 ->toArray();
         }
 
-        return collect($dailyAverages)
-            ->chunk($chunkDays)
-            ->map(function ($chunk) {
-                $start = Carbon::parse($chunk->first()['date']);
-                $end = Carbon::parse($chunk->last()['date']);
-
-                return [
-                    'label' => $start->isSameDay($end)
-                        ? $start->format('j M')
-                        : ($start->year === $end->year
-                            ? $start->format('j M').' - '.$end->format('j M')
-                            : $start->format('j M Y').' - '.$end->format('j M Y')),
-                    'weight' => round($chunk->avg('weight'), 1),
-                    'date' => $end->format('j M Y'),
-                ];
-            })
+        return $days
+            ->groupBy(fn (array $day) => Carbon::parse($day['date'])->startOfWeek()->toDateString())
+            ->map(fn (Collection $week, string $weekStart) => [
+                'date' => $weekStart,
+                'label' => 'Week of '.Carbon::parse($weekStart)->format('j M Y'),
+                'weight' => round($week->avg('weight'), 1),
+            ])
             ->values()
             ->toArray();
     }
@@ -153,6 +190,9 @@ new #[Title('Weight Tracking')] class extends Component {
         return $ranges[$this->chartRange] ?? $ranges['1m'];
     }
 
+    /**
+     * @return array<int, array{value: string, button_label: string, is_available: bool}>
+     */
     #[Computed]
     public function chartRangeButtons(): array
     {
@@ -160,6 +200,7 @@ new #[Title('Weight Tracking')] class extends Component {
             ->map(fn (array $range, string $value) => [
                 'value' => $value,
                 'button_label' => $range['button_label'],
+                'is_available' => $this->rangeHasEnoughData($value),
             ])
             ->values()
             ->toArray();
@@ -203,6 +244,28 @@ new #[Title('Weight Tracking')] class extends Component {
         ];
     }
 
+    /**
+     * The highest and lowest points plotted in the selected range.
+     *
+     * @return array{high: array{weight: float, date: string}, low: array{weight: float, date: string}}|null
+     */
+    #[Computed]
+    public function chartHighLow(): ?array
+    {
+        if (count($this->chartData) < 2) {
+            return null;
+        }
+
+        $points = collect($this->chartData);
+        $high = $points->sortByDesc('weight')->first();
+        $low = $points->sortBy('weight')->first();
+
+        return [
+            'high' => ['weight' => $high['weight'], 'date' => Carbon::parse($high['date'])->format('j M Y')],
+            'low' => ['weight' => $low['weight'], 'date' => Carbon::parse($low['date'])->format('j M Y')],
+        ];
+    }
+
     #[Computed]
     public function chartRangeLabel(): string
     {
@@ -212,7 +275,34 @@ new #[Title('Weight Tracking')] class extends Component {
     #[Computed]
     public function chartRangeResolution(): string
     {
-        return $this->chartRangeConfig['resolution'];
+        if ($this->daysInRange($this->chartRangeConfig['start'])->count() > self::MAX_DAILY_CHART_POINTS) {
+            return 'one point per week (weekly average)';
+        }
+
+        return 'one point per weigh-in day';
+    }
+
+    #[Computed]
+    public function chartShowsMarkers(): bool
+    {
+        return count($this->chartData) <= self::MAX_CHART_MARKERS;
+    }
+
+    /**
+     * Intl date format for the x axis: day and month for short spans, month and year for long ones.
+     *
+     * @return array<string, string>
+     */
+    #[Computed]
+    public function chartAxisFormat(): array
+    {
+        $points = $this->chartData;
+
+        if (count($points) >= 2 && Carbon::parse($points[0]['date'])->diffInDays(Carbon::parse(end($points)['date'])) > 200) {
+            return ['month' => 'short', 'year' => '2-digit'];
+        }
+
+        return ['day' => 'numeric', 'month' => 'short'];
     }
 
     public function setChartRange(string $range): void
@@ -221,7 +311,7 @@ new #[Title('Weight Tracking')] class extends Component {
             return;
         }
 
-        if (! array_key_exists($range, $this->chartRanges())) {
+        if (! array_key_exists($range, $this->chartRanges()) || ! $this->rangeHasEnoughData($range)) {
             return;
         }
 
@@ -238,49 +328,195 @@ new #[Title('Weight Tracking')] class extends Component {
                 'button_label' => '1M',
                 'label' => 'Last month',
                 'start' => $referenceNow->copy()->subMonth()->startOfDay(),
-                'chunk_days' => 1,
-                'resolution' => 'daily average points',
             ],
             '3m' => [
                 'button_label' => '3M',
                 'label' => 'Last 3 months',
                 'start' => $referenceNow->copy()->subMonths(3)->startOfDay(),
-                'chunk_days' => 3,
-                'resolution' => '3-day average points',
             ],
             '6m' => [
                 'button_label' => '6M',
                 'label' => 'Last 6 months',
                 'start' => $referenceNow->copy()->subMonths(6)->startOfDay(),
-                'chunk_days' => 7,
-                'resolution' => 'weekly average points',
             ],
             '1y' => [
                 'button_label' => '1Y',
                 'label' => 'Last year',
                 'start' => $referenceNow->copy()->subYear()->startOfDay(),
-                'chunk_days' => 14,
-                'resolution' => '2-week average points',
             ],
             'all' => [
                 'button_label' => 'Since Joining',
                 'label' => 'Since joining',
                 'start' => null,
-                'chunk_days' => 30,
-                'resolution' => 'monthly average points',
             ],
         ];
     }
 
+    /**
+     * @return Collection<int, array{date: string, weight: float, entries: int}>
+     */
+    private function daysInRange(?Carbon $start): Collection
+    {
+        if ($start === null) {
+            return $this->dailyWeights;
+        }
+
+        $startDate = $start->toDateString();
+
+        return $this->dailyWeights->filter(fn (array $day) => $day['date'] >= $startDate)->values();
+    }
+
+    /**
+     * A trend line needs weigh-ins on at least two different days in the range.
+     */
+    private function rangeHasEnoughData(string $range): bool
+    {
+        return $this->daysInRange($this->chartRanges()[$range]['start'])->count() >= 2;
+    }
+
+    /**
+     * Keeps the selected range on one that can draw a line, preferring the shortest such range.
+     */
+    private function ensureChartRangeIsAvailable(): void
+    {
+        if ($this->rangeHasEnoughData($this->chartRange)) {
+            return;
+        }
+
+        $this->chartRange = collect(array_keys($this->chartRanges()))
+            ->first(fn (string $range) => $this->rangeHasEnoughData($range)) ?? '1m';
+    }
+
     private function resetChartComputedProperties(): void
     {
-        unset($this->chartRangeConfig, $this->chartRangeLabel, $this->chartRangeResolution, $this->chartData, $this->chartTrend);
+        unset(
+            $this->chartRangeConfig,
+            $this->chartRangeLabel,
+            $this->chartRangeResolution,
+            $this->chartData,
+            $this->chartTrend,
+            $this->chartHighLow,
+            $this->chartShowsMarkers,
+            $this->chartAxisFormat,
+        );
+    }
+
+    /**
+     * Clears everything derived from the user's weigh-ins after one is added, changed or removed.
+     */
+    private function refreshWeights(): void
+    {
+        unset($this->recentWeights, $this->recentLossPerDay, $this->goalStats, $this->dailyWeights, $this->chartRangeButtons);
+        $this->ensureChartRangeIsAvailable();
+        $this->resetChartComputedProperties();
+    }
+
+    /**
+     * @return array<string, array<int, string>>
+     */
+    private function weightRules(string $field): array
+    {
+        return [$field => ['required', 'numeric', 'min:'.self::MIN_WEIGHT_LBS, 'max:'.self::MAX_WEIGHT_LBS]];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function weightMessages(string $field): array
+    {
+        $outOfRange = 'Weight must be between '.self::MIN_WEIGHT_LBS.' and '.self::MAX_WEIGHT_LBS.' lbs. Check for a misplaced decimal point.';
+
+        return [
+            $field.'.required' => 'Enter your weight in lbs.',
+            $field.'.min' => $outOfRange,
+            $field.'.max' => $outOfRange,
+        ];
+    }
+
+    /**
+     * Compares a new weigh-in with the user's last one to catch accidental entries.
+     *
+     * @return array{status: 'ok'|'confirm'|'blocked', message: string}
+     */
+    private function checkAgainstLastWeighIn(float $weight): array
+    {
+        $lastEntry = $this->recentWeights->first();
+
+        if (! $lastEntry || $lastEntry->weight_in_lbs <= 0) {
+            return ['status' => 'ok', 'message' => ''];
+        }
+
+        $lastWeight = round((float) $lastEntry->weight_in_lbs, 1);
+        $difference = round($weight - $lastWeight, 1);
+        $percent = round(abs($difference) / $lastWeight * 100, 1);
+
+        if ($percent <= self::CONFIRM_CHANGE_PERCENT) {
+            return ['status' => 'ok', 'message' => ''];
+        }
+
+        $lastDate = $lastEntry->created_at->format('j M Y');
+        $isRecent = $lastEntry->created_at->greaterThanOrEqualTo(now()->subDays(self::BLOCK_LOOKBACK_DAYS));
+
+        if ($percent > self::BLOCK_CHANGE_PERCENT && $isRecent) {
+            return [
+                'status' => 'blocked',
+                'message' => "That's {$percent}% away from your last weigh-in ({$lastWeight} lbs on {$lastDate}), which is too far to be right. "
+                    .'If your last weigh-in was wrong, edit it in Recent History below.',
+            ];
+        }
+
+        $direction = $difference > 0 ? 'heavier' : 'lighter';
+
+        return [
+            'status' => 'confirm',
+            'message' => abs($difference)." lbs ({$percent}%) {$direction} than your last weigh-in of {$lastWeight} lbs on {$lastDate}.",
+        ];
     }
 
     public function logWeight(): void
     {
-        $this->validate();
+        $this->validate($this->weightRules('weightInLbs'), $this->weightMessages('weightInLbs'));
 
+        $check = $this->checkAgainstLastWeighIn((float) $this->weightInLbs);
+
+        if ($check['status'] === 'blocked') {
+            $this->addError('weightInLbs', $check['message']);
+
+            return;
+        }
+
+        if ($check['status'] === 'confirm') {
+            $this->weightConfirmationMessage = $check['message'];
+            $this->showWeightConfirmation = true;
+
+            return;
+        }
+
+        $this->storeWeight();
+    }
+
+    /**
+     * Saves a weigh-in the user confirmed is correct. The block is checked again so it can't be skipped.
+     */
+    public function confirmLogWeight(): void
+    {
+        $this->showWeightConfirmation = false;
+
+        $this->validate($this->weightRules('weightInLbs'), $this->weightMessages('weightInLbs'));
+
+        $check = $this->checkAgainstLastWeighIn((float) $this->weightInLbs);
+
+        if ($check['status'] === 'blocked') {
+            $this->addError('weightInLbs', $check['message']);
+
+            return;
+        }
+
+        $this->storeWeight();
+    }
+
+    private function storeWeight(): void
+    {
         $previousWeight = $this->recentWeights->first()?->weight_in_lbs;
 
         BodyWeight::create([
@@ -289,12 +525,61 @@ new #[Title('Weight Tracking')] class extends Component {
         ]);
 
         $loggedWeight = (float) $this->weightInLbs;
-        $this->reset('weightInLbs');
+        $this->reset('weightInLbs', 'weightConfirmationMessage');
         $this->showSuccess = true;
-        unset($this->recentWeights, $this->recentLossPerDay, $this->goalStats);
-        $this->resetChartComputedProperties();
+        $this->refreshWeights();
 
         $this->dispatch('celebrate', message: $this->weighInMessage($previousWeight, $loggedWeight));
+    }
+
+    public function editWeight(int $weightId): void
+    {
+        $entry = $this->findOwnWeight($weightId);
+
+        $this->resetValidation('editWeightInLbs');
+        $this->editingWeightId = $entry->id;
+        $this->editWeightInLbs = round((float) $entry->weight_in_lbs, 1);
+        $this->showEditWeight = true;
+    }
+
+    public function updateWeight(): void
+    {
+        $this->validate($this->weightRules('editWeightInLbs'), $this->weightMessages('editWeightInLbs'));
+
+        $this->findOwnWeight((int) $this->editingWeightId)->update([
+            'weight_in_lbs' => $this->editWeightInLbs,
+        ]);
+
+        $this->reset('showEditWeight', 'editingWeightId', 'editWeightInLbs');
+        $this->showSuccess = false;
+        $this->refreshWeights();
+
+        $this->dispatch('celebrate', message: 'Weigh-in updated.');
+    }
+
+    public function confirmDeleteWeight(int $weightId): void
+    {
+        $this->deletingWeightId = $this->findOwnWeight($weightId)->id;
+        $this->showDeleteWeight = true;
+    }
+
+    public function deleteWeight(): void
+    {
+        $this->findOwnWeight((int) $this->deletingWeightId)->delete();
+
+        $this->reset('showDeleteWeight', 'deletingWeightId');
+        $this->showSuccess = false;
+        $this->refreshWeights();
+
+        $this->dispatch('celebrate', message: 'Weigh-in deleted.');
+    }
+
+    /**
+     * Finds one of the signed-in user's own weigh-ins, so nobody can change another user's entries.
+     */
+    private function findOwnWeight(int $weightId): BodyWeight
+    {
+        return BodyWeight::where('user_id', auth()->id())->findOrFail($weightId);
     }
 
     /**
@@ -350,7 +635,7 @@ new #[Title('Weight Tracking')] class extends Component {
             <form wire:submit="logWeight" class="space-y-4">
                 <flux:field>
                     <flux:label>Weight (lbs)</flux:label>
-                    <flux:input wire:model="weightInLbs" type="number" min="50" max="1000" step="0.1" placeholder="e.g. 185.5" inputmode="decimal" class="[&_input]:!h-14 [&_input]:!text-2xl [&_input]:font-bold [&_input]:tabular-nums" />
+                    <flux:input wire:model="weightInLbs" type="number" :min="$this::MIN_WEIGHT_LBS" :max="$this::MAX_WEIGHT_LBS" step="0.1" placeholder="e.g. 185.5" inputmode="decimal" class="[&_input]:!h-14 [&_input]:!text-2xl [&_input]:font-bold [&_input]:tabular-nums" />
                     <flux:error name="weightInLbs" />
                 </flux:field>
                 <flux:button type="submit" variant="primary" icon="check" class="w-full">Record Weight</flux:button>
@@ -438,23 +723,47 @@ new #[Title('Weight Tracking')] class extends Component {
             @foreach($this->chartRangeButtons as $button)
                 <button type="button" wire:click="setChartRange('{{ $button['value'] }}')"
                     aria-pressed="{{ $chartRange === $button['value'] ? 'true' : 'false' }}"
-                    class="rounded-lg px-3 py-1.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-emerald-500 {{ $chartRange === $button['value'] ? 'bg-white text-zinc-900 shadow-sm dark:bg-white/15 dark:text-white' : 'text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white' }}"
+                    @disabled(! $button['is_available'])
+                    @unless($button['is_available']) title="Needs weigh-ins on at least 2 different days in this period" @endunless
+                    class="rounded-lg px-3 py-1.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-emerald-500 disabled:cursor-not-allowed disabled:text-zinc-400 disabled:opacity-50 dark:disabled:text-zinc-600 {{ $chartRange === $button['value'] && $button['is_available'] ? 'bg-white text-zinc-900 shadow-sm dark:bg-white/15 dark:text-white' : 'text-zinc-600 enabled:hover:text-zinc-900 dark:text-zinc-400 dark:enabled:hover:text-white' }}"
                 >
                     {{ $button['button_label'] }}
                 </button>
             @endforeach
         </div>
 
-        @if(empty($this->chartData))
-            <x-ui.empty-state icon="chart-bar" title="No chart data available for this period yet." description="Log a few weigh-ins and your trend line will appear here." />
+        @if(count($this->chartData) < 2)
+            <x-ui.empty-state icon="chart-bar" title="Not enough weigh-ins for a trend yet." description="Log your weight on at least 2 different days and your trend line will appear here." />
         @else
+            @if($this->chartHighLow)
+                <dl class="grid grid-cols-3 gap-3">
+                    <div class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5">
+                        <dt class="text-xs text-zinc-600 dark:text-zinc-400">High</dt>
+                        <dd class="text-lg font-bold tabular-nums">{{ $this->chartHighLow['high']['weight'] }} lbs</dd>
+                        <dd class="text-xs text-zinc-600 dark:text-zinc-400">{{ $this->chartHighLow['high']['date'] }}</dd>
+                    </div>
+                    <div class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5">
+                        <dt class="text-xs text-zinc-600 dark:text-zinc-400">Low</dt>
+                        <dd class="text-lg font-bold tabular-nums">{{ $this->chartHighLow['low']['weight'] }} lbs</dd>
+                        <dd class="text-xs text-zinc-600 dark:text-zinc-400">{{ $this->chartHighLow['low']['date'] }}</dd>
+                    </div>
+                    <div class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5">
+                        <dt class="text-xs text-zinc-600 dark:text-zinc-400">Points plotted</dt>
+                        <dd class="text-lg font-bold tabular-nums">{{ count($this->chartData) }}</dd>
+                        <dd class="text-xs text-zinc-600 dark:text-zinc-400">{{ $this->chartRangeResolution }}</dd>
+                    </div>
+                </dl>
+            @endif
+
             <flux:chart :value="$this->chartData" wire:key="weight-chart-{{ $chartRange }}">
                 <flux:chart.viewport class="aspect-[2/1] sm:aspect-[3/1]">
                     <flux:chart.svg>
                         <flux:chart.line field="weight" class="text-emerald-500 dark:text-emerald-400" curve="none" />
                         <flux:chart.area field="weight" class="text-emerald-200/50 dark:text-emerald-400/15" curve="none" />
-                        <flux:chart.point field="weight" class="text-emerald-500 dark:text-emerald-400" r="3" />
-                        <flux:chart.axis axis="x" field="label" tick-count="5">
+                        @if($this->chartShowsMarkers)
+                            <flux:chart.point field="weight" class="text-emerald-500 dark:text-emerald-400" r="3" />
+                        @endif
+                        <flux:chart.axis axis="x" field="date" :format="$this->chartAxisFormat" tick-count="5">
                             <flux:chart.axis.tick />
                             <flux:chart.axis.line />
                         </flux:chart.axis>
@@ -465,7 +774,7 @@ new #[Title('Weight Tracking')] class extends Component {
                         <flux:chart.cursor />
                     </flux:chart.svg>
                     <flux:chart.tooltip>
-                        <flux:chart.tooltip.heading field="date" />
+                        <flux:chart.tooltip.heading field="label" />
                         <flux:chart.tooltip.value field="weight" label="Weight (lbs)" />
                     </flux:chart.tooltip>
                 </flux:chart.viewport>
@@ -499,10 +808,67 @@ new #[Title('Weight Tracking')] class extends Component {
                         @else
                             <span class="text-zinc-500 dark:text-zinc-400" aria-label="No previous entry">—</span>
                         @endif
+                        <div class="flex shrink-0 items-center">
+                            <flux:button size="sm" variant="ghost" icon="pencil-square" wire:click="editWeight({{ $entry->id }})" aria-label="Edit weigh-in of {{ round($entry->weight_in_lbs, 1) }} lbs on {{ $entry->created_at->format('d M Y') }}" />
+                            <flux:button size="sm" variant="ghost" icon="trash" wire:click="confirmDeleteWeight({{ $entry->id }})" aria-label="Delete weigh-in of {{ round($entry->weight_in_lbs, 1) }} lbs on {{ $entry->created_at->format('d M Y') }}" />
+                        </div>
                     </li>
                 @endforeach
             </ul>
         @endif
     </flux:card>
 
+    {{-- Unusual weigh-in confirmation --}}
+    <flux:modal wire:model="showWeightConfirmation" class="w-full max-w-md">
+        <div class="space-y-5">
+            <div>
+                <flux:heading size="lg">Is {{ $weightInLbs !== null ? round($weightInLbs, 1) : '' }} lbs right?</flux:heading>
+                <flux:text class="mt-2">That's {{ $weightConfirmationMessage }}</flux:text>
+                <flux:text class="mt-2">Check for a typo before saving.</flux:text>
+            </div>
+            <div class="flex gap-2">
+                <flux:modal.close>
+                    <flux:button variant="ghost" class="flex-1">No, let me fix it</flux:button>
+                </flux:modal.close>
+                <flux:button variant="primary" icon="check" class="flex-1" wire:click="confirmLogWeight">Yes, save it</flux:button>
+            </div>
+        </div>
+    </flux:modal>
+
+    {{-- Edit a weigh-in --}}
+    <flux:modal wire:model="showEditWeight" class="w-full max-w-md">
+        <form wire:submit="updateWeight" class="space-y-5">
+            <div>
+                <flux:heading size="lg">Edit weigh-in</flux:heading>
+                <flux:text class="mt-2">Correct a weigh-in you entered by mistake.</flux:text>
+            </div>
+            <flux:field>
+                <flux:label>Weight (lbs)</flux:label>
+                <flux:input wire:model="editWeightInLbs" type="number" :min="$this::MIN_WEIGHT_LBS" :max="$this::MAX_WEIGHT_LBS" step="0.1" inputmode="decimal" />
+                <flux:error name="editWeightInLbs" />
+            </flux:field>
+            <div class="flex gap-2">
+                <flux:modal.close>
+                    <flux:button variant="ghost" class="flex-1">Cancel</flux:button>
+                </flux:modal.close>
+                <flux:button type="submit" variant="primary" icon="check" class="flex-1">Save changes</flux:button>
+            </div>
+        </form>
+    </flux:modal>
+
+    {{-- Delete a weigh-in --}}
+    <flux:modal wire:model="showDeleteWeight" class="w-full max-w-md">
+        <div class="space-y-5">
+            <div>
+                <flux:heading size="lg">Delete this weigh-in?</flux:heading>
+                <flux:text class="mt-2">It will be removed from your history and charts. This can't be undone.</flux:text>
+            </div>
+            <div class="flex gap-2">
+                <flux:modal.close>
+                    <flux:button variant="ghost" class="flex-1">Cancel</flux:button>
+                </flux:modal.close>
+                <flux:button variant="danger" icon="trash" class="flex-1" wire:click="deleteWeight">Delete</flux:button>
+            </div>
+        </div>
+    </flux:modal>
 </div>
