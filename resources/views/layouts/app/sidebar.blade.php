@@ -18,7 +18,7 @@
         </a>
 
         {{-- Ambient brand glow --}}
-        <div class="af-hero pointer-events-none fixed inset-x-0 top-0 -z-10 h-[28rem] opacity-60 dark:opacity-100" aria-hidden="true"></div>
+        <div class="af-hero af-ambient pointer-events-none fixed inset-x-0 top-0 -z-10 h-[28rem] opacity-60 dark:opacity-100" aria-hidden="true"></div>
 
         <flux:sidebar sticky collapsible="mobile" class="border-e border-zinc-200 bg-white/80 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/80">
             <flux:sidebar.header>

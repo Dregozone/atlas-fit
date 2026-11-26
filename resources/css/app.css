@@ -99,6 +99,16 @@
             radial-gradient(ellipse at 60% 120%, rgb(139 92 246 / 0.14) 0%, transparent 55%);
     }
 
+    /*
+     * Page-wide ambient glow (app layout). The layer is only 28rem tall but its
+     * gradients are still visible at its bottom edge, which drew a hard line
+     * across every page. Fade the layer out so it blends into the background.
+     */
+    .af-ambient {
+        -webkit-mask-image: linear-gradient(to bottom, black 35%, transparent 100%);
+        mask-image: linear-gradient(to bottom, black 35%, transparent 100%);
+    }
+
     .af-gradient-text {
         background: linear-gradient(135deg, var(--color-emerald-500), var(--color-cyan-500), var(--color-violet-400));
         -webkit-background-clip: text;
