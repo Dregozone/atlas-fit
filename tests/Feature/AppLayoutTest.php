@@ -48,3 +48,16 @@ test('each main page renders inside the redesigned layout', function (string $ro
     'weight goals' => ['weight.goals', 'Body Weight Goals'],
     'api settings' => ['settings.api', 'API Access'],
 ]);
+
+test('pages link the Atlas Fit favicon and touch icon', function () {
+    $this->actingAs(User::factory()->create());
+
+    $this->get(route('dashboard'))
+        ->assertOk()
+        ->assertSee('<link rel="icon" href="/favicon.svg" type="image/svg+xml">', false)
+        ->assertSee('<link rel="apple-touch-icon" href="/apple-touch-icon.png">', false);
+
+    expect(public_path('favicon.svg'))->toBeFile()
+        ->and(public_path('favicon.ico'))->toBeFile()
+        ->and(public_path('apple-touch-icon.png'))->toBeFile();
+});
