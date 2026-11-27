@@ -149,45 +149,55 @@ new #[Title('Weight Tracking')] class extends Component {
     }
 
     /**
-     * The points plotted for the selected range: one per weigh-in day, or one per week when
-     * there are too many days to draw individually.
+     * Everything the chart shows for each range that can draw a line. Every range is sent to the
+     * browser at once so switching between them is instant.
+     *
+     * @return array<string, array{label: string, resolution: string, points: array<int, array{date: string, label: string, weight: float}>, plotted: array<int, array{date: string, label: string, weight: float|null}>, trend: array{direction: string, change: float|int, color: string}, high_low: array{high: array{weight: float, date: string}, low: array{weight: float, date: string}}|null, shows_markers: bool, axis_format: array<string, string>}>
+     */
+    #[Computed]
+    public function chartViews(): array
+    {
+        return collect(array_keys($this->chartRanges()))
+            ->filter(fn (string $range) => $this->rangeHasEnoughData($range))
+            ->mapWithKeys(fn (string $range) => [$range => $this->buildChartView($range)])
+            ->all();
+    }
+
+    /**
+     * The weigh-ins plotted for the selected range.
      *
      * @return array<int, array{date: string, label: string, weight: float}>
      */
     #[Computed]
     public function chartData(): array
     {
-        $days = $this->daysInRange($this->chartRangeConfig['start']);
-
-        if ($days->count() <= self::MAX_DAILY_CHART_POINTS) {
-            return $days
-                ->map(fn (array $day) => [
-                    'date' => $day['date'],
-                    'label' => Carbon::parse($day['date'])->format('D j M Y')
-                        .($day['entries'] > 1 ? ' (average of '.$day['entries'].' weigh-ins)' : ''),
-                    'weight' => $day['weight'],
-                ])
-                ->values()
-                ->toArray();
-        }
-
-        return $days
-            ->groupBy(fn (array $day) => Carbon::parse($day['date'])->startOfWeek()->toDateString())
-            ->map(fn (Collection $week, string $weekStart) => [
-                'date' => $weekStart,
-                'label' => 'Week of '.Carbon::parse($weekStart)->format('j M Y'),
-                'weight' => round($week->avg('weight'), 1),
-            ])
-            ->values()
-            ->toArray();
+        return $this->selectedChartView()['points'];
     }
 
     #[Computed]
-    public function chartRangeConfig(): array
+    public function chartRangeResolution(): string
     {
-        $ranges = $this->chartRanges();
+        return $this->selectedChartView()['resolution'];
+    }
 
-        return $ranges[$this->chartRange] ?? $ranges['1m'];
+    /**
+     * The highest and lowest points plotted in the selected range.
+     *
+     * @return array{high: array{weight: float, date: string}, low: array{weight: float, date: string}}|null
+     */
+    #[Computed]
+    public function chartHighLow(): ?array
+    {
+        return $this->selectedChartView()['high_low'];
+    }
+
+    /**
+     * @return array{direction: string, change: float|int, color: string}
+     */
+    #[Computed]
+    public function chartTrend(): array
+    {
+        return $this->selectedChartView()['trend'];
     }
 
     /**
@@ -206,10 +216,133 @@ new #[Title('Weight Tracking')] class extends Component {
             ->toArray();
     }
 
-    #[Computed]
-    public function chartTrend(): array
+    public function setChartRange(string $range): void
     {
-        if (count($this->chartData) < 2) {
+        if (! auth()->check()) {
+            return;
+        }
+
+        if (! array_key_exists($range, $this->chartRanges()) || ! $this->rangeHasEnoughData($range)) {
+            return;
+        }
+
+        $this->chartRange = $range;
+        $this->resetChartComputedProperties();
+    }
+
+    /**
+     * The range is switched in the browser and synced with the next request, so check it is one that can draw a line.
+     */
+    public function updatedChartRange(): void
+    {
+        if (! array_key_exists($this->chartRange, $this->chartRanges())) {
+            $this->chartRange = '1m';
+        }
+
+        $this->ensureChartRangeIsAvailable();
+        $this->resetChartComputedProperties();
+    }
+
+    /**
+     * @return array{label: string, resolution: string, points: array<int, array{date: string, label: string, weight: float}>, plotted: array<int, array{date: string, label: string, weight: float|null}>, trend: array{direction: string, change: float|int, color: string}, high_low: array{high: array{weight: float, date: string}, low: array{weight: float, date: string}}|null, shows_markers: bool, axis_format: array<string, string>}
+     */
+    private function selectedChartView(): array
+    {
+        return $this->chartViews[$this->chartRange] ?? $this->buildChartView($this->chartRange);
+    }
+
+    /**
+     * Builds the chart for one range: one point per weigh-in day, or one per week when there are
+     * too many days to draw individually.
+     *
+     * @return array{label: string, resolution: string, points: array<int, array{date: string, label: string, weight: float}>, plotted: array<int, array{date: string, label: string, weight: float|null}>, trend: array{direction: string, change: float|int, color: string}, high_low: array{high: array{weight: float, date: string}, low: array{weight: float, date: string}}|null, shows_markers: bool, axis_format: array<string, string>}
+     */
+    private function buildChartView(string $range): array
+    {
+        $config = $this->chartRanges()[$range] ?? $this->chartRanges()['1m'];
+        $days = $this->daysInRange($config['start']);
+        $isWeekly = $days->count() > self::MAX_DAILY_CHART_POINTS;
+
+        $points = $isWeekly
+            ? $days
+                ->groupBy(fn (array $day) => Carbon::parse($day['date'])->startOfWeek()->toDateString())
+                ->map(fn (Collection $week, string $weekStart) => [
+                    'date' => $weekStart,
+                    'label' => 'Week of '.Carbon::parse($weekStart)->format('j M Y'),
+                    'weight' => round($week->avg('weight'), 1),
+                ])
+                ->values()
+                ->toArray()
+            : $days
+                ->map(fn (array $day) => [
+                    'date' => $day['date'],
+                    'label' => Carbon::parse($day['date'])->format('D j M Y')
+                        .($day['entries'] > 1 ? ' (average of '.$day['entries'].' weigh-ins)' : ''),
+                    'weight' => $day['weight'],
+                ])
+                ->values()
+                ->toArray();
+
+        $plotted = $this->spanWholeRange($points, $config['start']);
+
+        return [
+            'label' => $config['label'],
+            'resolution' => $isWeekly ? 'one point per week (weekly average)' : 'one point per weigh-in day',
+            'points' => $points,
+            'plotted' => $plotted,
+            'trend' => $this->trendFor($points),
+            'high_low' => $this->highLowFor($points),
+            'shows_markers' => count($points) <= self::MAX_CHART_MARKERS,
+            'axis_format' => $this->axisFormatFor($plotted),
+        ];
+    }
+
+    /**
+     * Adds empty points at the start of the range and today, so the timeline always covers the whole
+     * period selected even when there are no weigh-ins near either end. Empty points draw nothing.
+     *
+     * @param  array<int, array{date: string, label: string, weight: float}>  $points
+     * @return array<int, array{date: string, label: string, weight: float|null}>
+     */
+    private function spanWholeRange(array $points, ?Carbon $start): array
+    {
+        if ($points === []) {
+            return $points;
+        }
+
+        $firstDate = $start?->toDateString() ?? $points[0]['date'];
+        $today = Carbon::today()->toDateString();
+
+        if ($points[0]['date'] > $firstDate) {
+            array_unshift($points, $this->emptyChartPoint($firstDate));
+        }
+
+        if (end($points)['date'] < $today) {
+            $points[] = $this->emptyChartPoint($today);
+        }
+
+        return $points;
+    }
+
+    /**
+     * @return array{date: string, label: string, weight: null}
+     */
+    private function emptyChartPoint(string $date): array
+    {
+        return [
+            'date' => $date,
+            'label' => Carbon::parse($date)->format('D j M Y').' (no weigh-in)',
+            'weight' => null,
+        ];
+    }
+
+    /**
+     * @param  array<int, array{date: string, label: string, weight: float}>  $points
+     * @return array{direction: string, change: float|int, color: string}
+     */
+    private function trendFor(array $points): array
+    {
+        if (count($points) < 2) {
             return [
                 'direction' => 'Not enough data yet',
                 'change' => 0,
@@ -217,9 +350,7 @@ new #[Title('Weight Tracking')] class extends Component {
             ];
         }
 
-        $first = $this->chartData[0]['weight'];
-        $last = $this->chartData[count($this->chartData) - 1]['weight'];
-        $change = round($last - $first, 1);
+        $change = round(end($points)['weight'] - $points[0]['weight'], 1);
 
         if (abs($change) <= self::MAINTAINING_THRESHOLD_LBS) {
             return [
@@ -245,20 +376,18 @@ new #[Title('Weight Tracking')] class extends Component {
     }
 
     /**
-     * The highest and lowest points plotted in the selected range.
-     *
+     * @param  array<int, array{date: string, label: string, weight: float}>  $points
      * @return array{high: array{weight: float, date: string}, low: array{weight: float, date: string}}|null
      */
-    #[Computed]
-    public function chartHighLow(): ?array
+    private function highLowFor(array $points): ?array
     {
-        if (count($this->chartData) < 2) {
+        if (count($points) < 2) {
             return null;
         }
 
-        $points = collect($this->chartData);
-        $high = $points->sortByDesc('weight')->first();
-        $low = $points->sortBy('weight')->first();
+        $collection = collect($points);
+        $high = $collection->sortByDesc('weight')->first();
+        $low = $collection->sortBy('weight')->first();
 
         return [
             'high' => ['weight' => $high['weight'], 'date' => Carbon::parse($high['date'])->format('j M Y')],
@@ -266,57 +395,19 @@ new #[Title('Weight Tracking')] class extends Component {
         ];
     }
 
-    #[Computed]
-    public function chartRangeLabel(): string
-    {
-        return $this->chartRangeConfig['label'];
-    }
-
-    #[Computed]
-    public function chartRangeResolution(): string
-    {
-        if ($this->daysInRange($this->chartRangeConfig['start'])->count() > self::MAX_DAILY_CHART_POINTS) {
-            return 'one point per week (weekly average)';
-        }
-
-        return 'one point per weigh-in day';
-    }
-
-    #[Computed]
-    public function chartShowsMarkers(): bool
-    {
-        return count($this->chartData) <= self::MAX_CHART_MARKERS;
-    }
-
     /**
      * Intl date format for the x axis: day and month for short spans, month and year for long ones.
      *
+     * @param  array<int, array{date: string, label: string, weight: float|null}>  $points
      * @return array<string, string>
      */
-    #[Computed]
-    public function chartAxisFormat(): array
+    private function axisFormatFor(array $points): array
     {
-        $points = $this->chartData;
-
         if (count($points) >= 2 && Carbon::parse($points[0]['date'])->diffInDays(Carbon::parse(end($points)['date'])) > 200) {
             return ['month' => 'short', 'year' => '2-digit'];
         }
 
         return ['day' => 'numeric', 'month' => 'short'];
-    }
-
-    public function setChartRange(string $range): void
-    {
-        if (! auth()->check()) {
-            return;
-        }
-
-        if (! array_key_exists($range, $this->chartRanges()) || ! $this->rangeHasEnoughData($range)) {
-            return;
-        }
-
-        $this->chartRange = $range;
-        $this->resetChartComputedProperties();
     }
 
     private function chartRanges(): array
@@ -390,14 +481,11 @@ new #[Title('Weight Tracking')] class extends Component {
     private function resetChartComputedProperties(): void
     {
         unset(
-            $this->chartRangeConfig,
-            $this->chartRangeLabel,
-            $this->chartRangeResolution,
+            $this->chartViews,
             $this->chartData,
-            $this->chartTrend,
+            $this->chartRangeResolution,
             $this->chartHighLow,
-            $this->chartShowsMarkers,
-            $this->chartAxisFormat,
+            $this->chartTrend,
         );
     }
 
@@ -702,83 +790,100 @@ new #[Title('Weight Tracking')] class extends Component {
         </div>
     </div>
 
-    {{-- Trend chart --}}
+    {{-- Trend chart: every available range is rendered up front and switched in the browser --}}
     <flux:card class="!rounded-2xl space-y-4">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
                 <flux:heading size="lg" level="2">Weight Trend</flux:heading>
-                <flux:text>
-                    {{ $this->chartRangeLabel }} · {{ $this->chartRangeResolution }}
-                </flux:text>
+                @foreach($this->chartViews as $range => $view)
+                    <flux:text wire:key="weight-chart-caption-{{ $range }}" x-show="$wire.chartRange === '{{ $range }}'" @style(['display: none' => $range !== $chartRange])>
+                        {{ $view['label'] }} · {{ $view['resolution'] }}
+                    </flux:text>
+                @endforeach
             </div>
-            <flux:badge class="self-start" color="{{ $this->chartTrend['color'] }}" icon="{{ $this->chartTrend['direction'] === 'Gaining' ? 'arrow-trending-up' : ($this->chartTrend['direction'] === 'Losing' ? 'arrow-trending-down' : 'minus') }}">
-                {{ $this->chartTrend['direction'] }}
-                @if($this->chartTrend['change'] !== 0)
-                    ({{ $this->chartTrend['change'] > 0 ? '+' : '' }}{{ $this->chartTrend['change'] }} lbs)
-                @endif
-            </flux:badge>
+            @foreach($this->chartViews as $range => $view)
+                <div wire:key="weight-chart-trend-{{ $range }}" class="self-start" x-show="$wire.chartRange === '{{ $range }}'" @style(['display: none' => $range !== $chartRange])>
+                    <flux:badge color="{{ $view['trend']['color'] }}" icon="{{ $view['trend']['direction'] === 'Gaining' ? 'arrow-trending-up' : ($view['trend']['direction'] === 'Losing' ? 'arrow-trending-down' : 'minus') }}">
+                        {{ $view['trend']['direction'] }}
+                        @if($view['trend']['change'] !== 0)
+                            ({{ $view['trend']['change'] > 0 ? '+' : '' }}{{ $view['trend']['change'] }} lbs)
+                        @endif
+                    </flux:badge>
+                </div>
+            @endforeach
         </div>
 
         <div class="inline-flex flex-wrap gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-white/5" role="group" aria-label="Chart range">
             @foreach($this->chartRangeButtons as $button)
-                <button type="button" wire:click="setChartRange('{{ $button['value'] }}')"
-                    aria-pressed="{{ $chartRange === $button['value'] ? 'true' : 'false' }}"
-                    @disabled(! $button['is_available'])
-                    @unless($button['is_available']) title="Needs weigh-ins on at least 2 different days in this period" @endunless
-                    class="rounded-lg px-3 py-1.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-emerald-500 disabled:cursor-not-allowed disabled:text-zinc-400 disabled:opacity-50 dark:disabled:text-zinc-600 {{ $chartRange === $button['value'] && $button['is_available'] ? 'bg-white text-zinc-900 shadow-sm dark:bg-white/15 dark:text-white' : 'text-zinc-600 enabled:hover:text-zinc-900 dark:text-zinc-400 dark:enabled:hover:text-white' }}"
+                <button type="button"
+                    @if($button['is_available'])
+                        x-on:click="$wire.chartRange = '{{ $button['value'] }}'"
+                        x-bind:aria-pressed="$wire.chartRange === '{{ $button['value'] }}' ? 'true' : 'false'"
+                        x-bind:data-selected="$wire.chartRange === '{{ $button['value'] }}'"
+                    @else
+                        disabled
+                        title="Needs weigh-ins on at least 2 different days in this period"
+                    @endif
+                    aria-pressed="{{ $chartRange === $button['value'] && $button['is_available'] ? 'true' : 'false' }}"
+                    @if($chartRange === $button['value'] && $button['is_available']) data-selected="true" @endif
+                    class="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-600 transition focus-visible:outline-2 focus-visible:outline-emerald-500 enabled:hover:text-zinc-900 disabled:cursor-not-allowed disabled:text-zinc-400 disabled:opacity-50 data-[selected=true]:bg-white data-[selected=true]:text-zinc-900 data-[selected=true]:shadow-sm dark:text-zinc-400 dark:enabled:hover:text-white dark:disabled:text-zinc-600 dark:data-[selected=true]:bg-white/15 dark:data-[selected=true]:text-white"
                 >
                     {{ $button['button_label'] }}
                 </button>
             @endforeach
         </div>
 
-        @if(count($this->chartData) < 2)
+        @if($this->chartViews === [])
             <x-ui.empty-state icon="chart-bar" title="Not enough weigh-ins for a trend yet." description="Log your weight on at least 2 different days and your trend line will appear here." />
         @else
-            @if($this->chartHighLow)
-                <dl class="grid grid-cols-3 gap-3">
-                    <div class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5">
-                        <dt class="text-xs text-zinc-600 dark:text-zinc-400">High</dt>
-                        <dd class="text-lg font-bold tabular-nums">{{ $this->chartHighLow['high']['weight'] }} lbs</dd>
-                        <dd class="text-xs text-zinc-600 dark:text-zinc-400">{{ $this->chartHighLow['high']['date'] }}</dd>
-                    </div>
-                    <div class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5">
-                        <dt class="text-xs text-zinc-600 dark:text-zinc-400">Low</dt>
-                        <dd class="text-lg font-bold tabular-nums">{{ $this->chartHighLow['low']['weight'] }} lbs</dd>
-                        <dd class="text-xs text-zinc-600 dark:text-zinc-400">{{ $this->chartHighLow['low']['date'] }}</dd>
-                    </div>
-                    <div class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5">
-                        <dt class="text-xs text-zinc-600 dark:text-zinc-400">Points plotted</dt>
-                        <dd class="text-lg font-bold tabular-nums">{{ count($this->chartData) }}</dd>
-                        <dd class="text-xs text-zinc-600 dark:text-zinc-400">{{ $this->chartRangeResolution }}</dd>
-                    </div>
-                </dl>
-            @endif
+            @foreach($this->chartViews as $range => $view)
+                <div wire:key="weight-chart-panel-{{ $range }}" class="space-y-4" x-show="$wire.chartRange === '{{ $range }}'" @style(['display: none' => $range !== $chartRange])>
+                    @if($view['high_low'])
+                        <dl class="grid grid-cols-3 gap-3">
+                            <div class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5">
+                                <dt class="text-xs text-zinc-600 dark:text-zinc-400">High</dt>
+                                <dd class="text-lg font-bold tabular-nums">{{ $view['high_low']['high']['weight'] }} lbs</dd>
+                                <dd class="text-xs text-zinc-600 dark:text-zinc-400">{{ $view['high_low']['high']['date'] }}</dd>
+                            </div>
+                            <div class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5">
+                                <dt class="text-xs text-zinc-600 dark:text-zinc-400">Low</dt>
+                                <dd class="text-lg font-bold tabular-nums">{{ $view['high_low']['low']['weight'] }} lbs</dd>
+                                <dd class="text-xs text-zinc-600 dark:text-zinc-400">{{ $view['high_low']['low']['date'] }}</dd>
+                            </div>
+                            <div class="rounded-xl bg-zinc-50 p-3 dark:bg-white/5">
+                                <dt class="text-xs text-zinc-600 dark:text-zinc-400">Points plotted</dt>
+                                <dd class="text-lg font-bold tabular-nums">{{ count($view['points']) }}</dd>
+                                <dd class="text-xs text-zinc-600 dark:text-zinc-400">{{ $view['resolution'] }}</dd>
+                            </div>
+                        </dl>
+                    @endif
 
-            <flux:chart :value="$this->chartData" wire:key="weight-chart-{{ $chartRange }}">
-                <flux:chart.viewport class="aspect-[2/1] sm:aspect-[3/1]">
-                    <flux:chart.svg>
-                        <flux:chart.line field="weight" class="text-emerald-500 dark:text-emerald-400" curve="none" />
-                        <flux:chart.area field="weight" class="text-emerald-200/50 dark:text-emerald-400/15" curve="none" />
-                        @if($this->chartShowsMarkers)
-                            <flux:chart.point field="weight" class="text-emerald-500 dark:text-emerald-400" r="3" />
-                        @endif
-                        <flux:chart.axis axis="x" field="date" :format="$this->chartAxisFormat" tick-count="5">
-                            <flux:chart.axis.tick />
-                            <flux:chart.axis.line />
-                        </flux:chart.axis>
-                        <flux:chart.axis axis="y" tick-start="min" tick-count="4">
-                            <flux:chart.axis.grid />
-                            <flux:chart.axis.tick />
-                        </flux:chart.axis>
-                        <flux:chart.cursor />
-                    </flux:chart.svg>
-                    <flux:chart.tooltip>
-                        <flux:chart.tooltip.heading field="label" />
-                        <flux:chart.tooltip.value field="weight" label="Weight (lbs)" />
-                    </flux:chart.tooltip>
-                </flux:chart.viewport>
-            </flux:chart>
+                    <flux:chart :value="$view['plotted']" wire:key="weight-chart-{{ $range }}" data-chart-range="{{ $range }}">
+                        <flux:chart.viewport class="aspect-[2/1] sm:aspect-[3/1]">
+                            <flux:chart.svg>
+                                <flux:chart.line field="weight" class="text-emerald-500 dark:text-emerald-400" curve="none" />
+                                <flux:chart.area field="weight" class="text-emerald-200/50 dark:text-emerald-400/15" curve="none" />
+                                @if($view['shows_markers'])
+                                    <flux:chart.point field="weight" class="text-emerald-500 dark:text-emerald-400" r="3" />
+                                @endif
+                                <flux:chart.axis axis="x" field="date" :format="$view['axis_format']" tick-count="5">
+                                    <flux:chart.axis.tick />
+                                    <flux:chart.axis.line />
+                                </flux:chart.axis>
+                                <flux:chart.axis axis="y" tick-start="min" tick-count="4">
+                                    <flux:chart.axis.grid />
+                                    <flux:chart.axis.tick />
+                                </flux:chart.axis>
+                                <flux:chart.cursor />
+                            </flux:chart.svg>
+                            <flux:chart.tooltip>
+                                <flux:chart.tooltip.heading field="label" />
+                                <flux:chart.tooltip.value field="weight" label="Weight (lbs)" />
+                            </flux:chart.tooltip>
+                        </flux:chart.viewport>
+                    </flux:chart>
+                </div>
+            @endforeach
         @endif
     </flux:card>
 
