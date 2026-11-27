@@ -107,6 +107,58 @@ test('invalid chart range requests are ignored', function () {
         ->assertSet('chartRange', '1m');
 });
 
+test('each chart range spans its whole period even when weigh-ins only cover part of it', function () {
+    $this->freezeTime();
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    BodyWeight::factory()->for($user)->create(['weight_in_lbs' => 190, 'created_at' => now()->subDays(20)]);
+    BodyWeight::factory()->for($user)->create(['weight_in_lbs' => 188, 'created_at' => now()->subDays(5)]);
+
+    $chartViews = Livewire::test('pages.weight-tracking')->get('chartViews');
+
+    foreach (['1m' => now()->subMonth(), '3m' => now()->subMonths(3), '6m' => now()->subMonths(6), '1y' => now()->subYear()] as $range => $start) {
+        $plotted = $chartViews[$range]['plotted'];
+
+        expect($plotted[0])->toMatchArray(['date' => $start->toDateString(), 'weight' => null]);
+        expect(end($plotted))->toMatchArray(['date' => now()->toDateString(), 'weight' => null]);
+        expect(collect($plotted)->pluck('weight')->filter()->values()->all())->toBe([190.0, 188.0]);
+        expect($chartViews[$range]['points'])->toHaveCount(2);
+    }
+
+    expect($chartViews['all']['plotted'][0])->toMatchArray(['date' => now()->subDays(20)->toDateString(), 'weight' => 190.0]);
+    expect(end($chartViews['all']['plotted']))->toMatchArray(['date' => now()->toDateString(), 'weight' => null]);
+});
+
+test('every available chart range is prepared up front so switching is instant', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    BodyWeight::factory()->for($user)->create(['weight_in_lbs' => 190, 'created_at' => now()->subDays(100)]);
+    BodyWeight::factory()->for($user)->create(['weight_in_lbs' => 188, 'created_at' => now()->subDays(5)]);
+
+    expect(array_keys(Livewire::test('pages.weight-tracking')->get('chartViews')))->toBe(['6m', '1y', 'all']);
+});
+
+test('a chart range switched in the browser is checked when it reaches the server', function () {
+    $user = User::factory()->create();
+    $this->actingAs($user);
+
+    BodyWeight::factory()->for($user)->create(['weight_in_lbs' => 190, 'created_at' => now()->subDays(100)]);
+    BodyWeight::factory()->for($user)->create(['weight_in_lbs' => 188, 'created_at' => now()->subDays(5)]);
+
+    $component = Livewire::test('pages.weight-tracking')
+        ->assertSet('chartRange', '6m')
+        ->set('chartRange', 'invalid')
+        ->assertSet('chartRange', '6m')
+        ->set('chartRange', '1m')
+        ->assertSet('chartRange', '6m')
+        ->set('chartRange', 'all')
+        ->assertSet('chartRange', 'all');
+
+    expect(collect($component->get('chartData'))->pluck('weight')->all())->toBe([190.0, 188.0]);
+});
+
 test('logging a first weigh-in celebrates the start of the journey', function () {
     $this->actingAs(User::factory()->create());
 
