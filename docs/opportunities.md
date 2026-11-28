@@ -292,3 +292,33 @@ Cover the achievement and personal-best calculations before P3/P4 change them.
 
 Smaller items (T5, T6, P2, P4, N5, N6, R3, R4, U4, S4, E2, E3) can be picked up alongside
 related work or as quick wins.
+
+---
+
+## 6. Issues raised
+
+Each group of opportunities has its own issue, written so an agent can pick it up and open a PR.
+Listed in the suggested order; dependencies are noted in each issue.
+
+| Order | Issue | Opportunities | Depends on / easier after |
+|-------|-------|---------------|---------------------------|
+| 1 | #61 Honest landing page | S1 | — |
+| 2 | #62 Shared services, indexes, PB/achievement tests | E1, E2, E3 | — |
+| 3 | #63 Macro targets follow weigh-ins | N1 | #62 (optional) |
+| 4 | #64 Per-user timezone and programme start date | U2, T7, R4 | #62 (optional) |
+| 5 | #65 Training maxes, target weights, e1RM PBs | T1, P4 | — |
+| 6 | #66 "Start today's session" checklist, rest timer, mobile pass | T2, T5, U4 | #65 (optional) |
+| 7 | #67 kg / lb preference | U1 | — |
+| 8 | #68 Onboarding wizard | R1 | #64, #65, #67 |
+| 9 | #69 Progress page and full workout history | P1, P2 | #65 (optional) |
+| 10 | #70 Achievements gallery and new achievement types | P3 | — |
+| 11 | #71 Personal foods, faster logging, "what to eat next" | N3, N4, N5 | — |
+| 12 | #73 Streaks, weekly summary, reminders | R2, R3 | #64 (optional) |
+| 13 | #74 Installable PWA | U3 | — |
+| 14 | #75 Secure API and write endpoints | S2, I2 | — |
+| 15 | #76 Data export and complete account deletion | S3 | — |
+| 16 | #72 Smarter macro targets and guardrails | N2, N6, S4 | #62, #63 |
+| 17 | #77 Per-set logging and overload suggestions | T3, T4 | #65 |
+| 18 | #78 Friendlier exercise library and swaps | T6 | — |
+| 19 | #79 Strava runs on a Cardio page | I1 | owner: Strava API app |
+| 20 | #80 Multiple programmes | I3 | #64 |
